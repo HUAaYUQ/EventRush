@@ -14,11 +14,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TicketingService {
+
+    private static final Logger log = LoggerFactory.getLogger(TicketingService.class);
 
     private final EventCatalogService eventCatalogService;
     private final AtomicLong orderIdGenerator = new AtomicLong(1);
@@ -34,6 +38,7 @@ public class TicketingService {
     private final int grabRateLimit;
     private final int grabRateLimitWindowSeconds;
     private final RedisTicketStockService redisTicketStockService;
+    private final ObjectProvider<OrderTimeoutMessagePublisher> orderTimeoutMessagePublisher;
 
     @Autowired
     public TicketingService(
@@ -46,7 +51,8 @@ public class TicketingService {
             @Value("${eventrush.rate-limit.redis-enabled:false}") boolean redisRateLimitEnabled,
             @Value("${eventrush.rate-limit.grab-limit:3}") int grabRateLimit,
             @Value("${eventrush.rate-limit.grab-window-seconds:10}") int grabRateLimitWindowSeconds,
-            ObjectProvider<RedisTicketStockService> redisTicketStockService
+            ObjectProvider<RedisTicketStockService> redisTicketStockService,
+            ObjectProvider<OrderTimeoutMessagePublisher> orderTimeoutMessagePublisher
     ) {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = ticketOrderRepository;
@@ -58,6 +64,7 @@ public class TicketingService {
         this.grabRateLimit = grabRateLimit;
         this.grabRateLimitWindowSeconds = grabRateLimitWindowSeconds;
         this.redisTicketStockService = redisTicketStockService.getIfAvailable();
+        this.orderTimeoutMessagePublisher = orderTimeoutMessagePublisher;
     }
 
     public TicketingService(EventCatalogService eventCatalogService) {
@@ -71,6 +78,7 @@ public class TicketingService {
         this.grabRateLimit = 3;
         this.grabRateLimitWindowSeconds = 10;
         this.redisTicketStockService = null;
+        this.orderTimeoutMessagePublisher = null;
     }
 
     @PostConstruct
@@ -106,7 +114,19 @@ public class TicketingService {
                 now,
                 now.plusSeconds(orderExpireSeconds)
         );
+        publishOrderTimeout(order);
         return order;
+    }
+
+    private void publishOrderTimeout(TicketOrder order) {
+        if (orderTimeoutMessagePublisher != null) {
+            try {
+                orderTimeoutMessagePublisher.ifAvailable(publisher -> publisher.publish(order.id()));
+            } catch (RuntimeException exception) {
+                // The timeout scanner remains the fallback if RocketMQ is temporarily unavailable.
+                log.warn("order timeout message publish failed, orderId={}", order.id(), exception);
+            }
+        }
     }
 
     private void checkGrabRateLimit(Long userId) {
@@ -252,21 +272,37 @@ public class TicketingService {
         List<TicketOrder> expiredOrders = ticketOrderRepository.findExpiredPending(LocalDateTime.now(), 100);
         int canceled = 0;
         for (TicketOrder order : expiredOrders) {
-            if (ticketOrderRepository.markCanceledIfPending(order.id(), LocalDateTime.now())) {
-                releaseStock(order);
+            if (cancelExpiredOrder(order.id())) {
                 canceled++;
             }
         }
         return canceled;
     }
 
+    @Transactional
+    public boolean cancelExpiredOrder(Long orderId) {
+        TicketOrder order = getOrder(orderId);
+        if (order.status() != OrderStatus.PENDING_PAYMENT || order.expireTime().isAfter(LocalDateTime.now())) {
+            return false;
+        }
+        if (ticketOrderRepository != null) {
+            if (!ticketOrderRepository.markCanceledIfPending(order.id(), LocalDateTime.now())) {
+                return false;
+            }
+        } else {
+            orders.put(order.id(), order.canceled(LocalDateTime.now()));
+        }
+        releaseStock(order);
+        return true;
+    }
+
     private int cancelExpiredMemoryOrders() {
         LocalDateTime now = LocalDateTime.now();
         int canceled = 0;
         for (TicketOrder order : List.copyOf(orders.values())) {
-            if (order.status() == OrderStatus.PENDING_PAYMENT && !order.expireTime().isAfter(now)) {
-                orders.put(order.id(), order.canceled(now));
-                releaseStock(order);
+            if (order.status() == OrderStatus.PENDING_PAYMENT
+                    && !order.expireTime().isAfter(now)
+                    && cancelExpiredOrder(order.id())) {
                 canceled++;
             }
         }

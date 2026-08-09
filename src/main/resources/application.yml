@@ -36,3 +36,6 @@ eventrush:
   order:
     expire-seconds: 900
     timeout-scan-ms: 5000
+    timeout-topic: eventrush-order-timeout-topic
+    timeout-consumer-group: eventrush-order-timeout-consumer
+    timeout-delay-level: 16

@@ -41,6 +41,17 @@ class OrderTimeoutServiceTest {
     }
 
     @Test
+    void timeoutMessageCancelsExpiredPendingOrder() {
+        TicketOrder order = ticketingService.grabTicket(602L, 101L, 1001L);
+
+        boolean canceled = ticketingService.cancelExpiredOrder(order.id());
+
+        assertThat(canceled).isTrue();
+        assertThat(ticketingService.getOrder(order.id()).status()).isEqualTo(OrderStatus.CANCELED);
+        assertThat(eventCatalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(50);
+    }
+
+    @Test
     void doesNotCancelPaidOrder() {
         TicketOrder order = ticketingService.grabTicket(601L, 101L, 1001L);
         ticketingService.payOrder(order.id());
