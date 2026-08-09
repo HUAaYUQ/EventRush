@@ -95,4 +95,4 @@ mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086 --eventrush
 
 ## 下一阶段建议
 
-第 9 阶段可以继续做“队列生产化”：增加 Redis Stream 消费者组、失败重试、死信队列，或者切换到 RabbitMQ。等这一步完成后，项目就更接近真实高并发抢票系统。
+第 9 阶段可以继续做“队列生产化”：切换到 RocketMQ，先用普通消息承接抢票削峰，再为后续订单超时取消和事务消息打基础。

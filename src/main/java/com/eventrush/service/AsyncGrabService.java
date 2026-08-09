@@ -9,8 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,13 +25,12 @@ public class AsyncGrabService {
 
     private final TicketingService ticketingService;
     private final StringRedisTemplate redisTemplate;
-    private final RabbitTemplate rabbitTemplate;
+    private final RocketMQTemplate rocketMQTemplate;
     private final ObjectMapper objectMapper;
-    private final boolean rabbitQueueEnabled;
+    private final boolean rocketQueueEnabled;
     private final boolean redisQueueEnabled;
     private final String queueKey;
-    private final String rabbitExchange;
-    private final String rabbitRoutingKey;
+    private final String rocketTopic;
     private final long resultTtlSeconds;
     private final LinkedBlockingQueue<GrabMessage> memoryQueue = new LinkedBlockingQueue<>();
     private final Map<String, GrabResult> memoryResults = new ConcurrentHashMap<>();
@@ -40,24 +38,22 @@ public class AsyncGrabService {
     public AsyncGrabService(
             TicketingService ticketingService,
             StringRedisTemplate redisTemplate,
-            ObjectProvider<RabbitTemplate> rabbitTemplate,
+            ObjectProvider<RocketMQTemplate> rocketMQTemplate,
             ObjectMapper objectMapper,
-            @Value("${eventrush.queue.rabbit-enabled:false}") boolean rabbitQueueEnabled,
+            @Value("${eventrush.queue.rocket-enabled:false}") boolean rocketQueueEnabled,
             @Value("${eventrush.queue.redis-enabled:false}") boolean redisQueueEnabled,
             @Value("${eventrush.queue.grab-key:eventrush:queue:grab}") String queueKey,
-            @Value("${eventrush.queue.rabbit.exchange:eventrush.grab.exchange}") String rabbitExchange,
-            @Value("${eventrush.queue.rabbit.routing-key:eventrush.grab}") String rabbitRoutingKey,
+            @Value("${eventrush.queue.rocket.topic:eventrush-grab-topic}") String rocketTopic,
             @Value("${eventrush.queue.result-ttl-seconds:600}") long resultTtlSeconds
     ) {
         this.ticketingService = ticketingService;
         this.redisTemplate = redisTemplate;
-        this.rabbitTemplate = rabbitTemplate.getIfAvailable();
+        this.rocketMQTemplate = rocketMQTemplate.getIfAvailable();
         this.objectMapper = objectMapper;
-        this.rabbitQueueEnabled = rabbitQueueEnabled;
+        this.rocketQueueEnabled = rocketQueueEnabled;
         this.redisQueueEnabled = redisQueueEnabled;
         this.queueKey = queueKey;
-        this.rabbitExchange = rabbitExchange;
-        this.rabbitRoutingKey = rabbitRoutingKey;
+        this.rocketTopic = rocketTopic;
         this.resultTtlSeconds = resultTtlSeconds;
     }
 
@@ -91,28 +87,24 @@ public class AsyncGrabService {
 
     @Scheduled(fixedDelayString = "${eventrush.queue.consumer-scan-ms:500}")
     void consumeOne() {
-        if (rabbitQueueEnabled) {
+        if (rocketQueueEnabled) {
             return;
         }
         Optional<GrabMessage> message = dequeue();
         message.ifPresent(this::process);
     }
 
-    @RabbitListener(
-            queues = "${eventrush.queue.rabbit.queue:eventrush.grab.queue}",
-            autoStartup = "${eventrush.queue.rabbit-enabled:false}"
-    )
-    void consumeRabbit(String json) {
+    void consumeRocket(String json) {
         try {
             process(objectMapper.readValue(json, GrabMessage.class));
         } catch (JsonProcessingException exception) {
-            throw new BusinessException("grab rabbit message deserialization failed");
+            throw new BusinessException("grab rocket message deserialization failed");
         }
     }
 
     private void enqueue(GrabMessage message) {
-        if (rabbitQueueEnabled) {
-            rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, writeJson(message));
+        if (rocketQueueEnabled) {
+            rocketMQTemplate.syncSend(rocketTopic, writeJson(message));
             return;
         }
         if (!redisQueueEnabled) {
@@ -163,7 +155,7 @@ public class AsyncGrabService {
     }
 
     private boolean usesRedisResultStore() {
-        return redisQueueEnabled && !rabbitQueueEnabled;
+        return redisQueueEnabled && !rocketQueueEnabled;
     }
 
     private String writeJson(GrabMessage message) {

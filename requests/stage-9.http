@@ -1,4 +1,4 @@
-### 第 9 阶段：RabbitMQ 异步抢票，接口不变
+### 第 9 阶段：RocketMQ 异步抢票，接口不变
 POST http://localhost:18086/api/orders/grab-async
 Content-Type: application/json
 

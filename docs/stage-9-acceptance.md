@@ -1,11 +1,11 @@
-# 第 9 阶段验收：RabbitMQ 正式削峰
+# 第 9 阶段验收：RocketMQ 正式削峰
 
 ## 本阶段交付
 
-- 接入 RabbitMQ：打开 `eventrush.queue.rabbit-enabled=true` 后，异步抢票请求会发送到 RabbitMQ。
-- 新增 Direct Exchange、业务队列、路由键、死信交换机和死信队列配置。
+- 接入 RocketMQ：打开 `eventrush.queue.rocket-enabled=true` 后，异步抢票请求会发送到 RocketMQ Topic。
+- 新增 RocketMQ 生产者和消费者：接口层发送抢票消息，消费者异步处理扣库存和创建订单。
 - 保留原来的异步接口：`POST /api/orders/grab-async` 和 `GET /api/orders/grab-requests/{requestId}` 不变。
-- 默认仍关闭 RabbitMQ，方便没有启动中间件时本地测试照常通过。
+- 默认仍关闭 RocketMQ，方便没有启动中间件时本地测试照常通过。
 
 ## 自动验收
 
@@ -18,28 +18,24 @@ mvn test
 预期结果：
 
 - 测试全部通过。
-- 默认不开 RabbitMQ，自动测试仍使用内存队列验证异步抢票不会超卖。
+- 默认不开 RocketMQ，自动测试仍使用内存队列验证异步抢票不会超卖。
 
-## RabbitMQ 环境
+## RocketMQ 环境
 
-本阶段需要 RabbitMQ 服务监听在本机默认端口：
+本阶段需要 RocketMQ 单机环境：
 
-- AMQP 端口：`5672`
-- 管理后台端口：`15672`
-- 默认用户名/密码通常是：`guest / guest`
+- NameServer：`127.0.0.1:9876`
+- Broker：连接 NameServer，并对应用暴露 Broker 端口。
+- Topic：应用发送到 `eventrush-grab-topic`，如果 Broker 开启自动创建 Topic，可以由首次发送自动创建。
 
-你可以用本机安装版，也可以用 Docker。能打开管理后台就说明服务基本可用：
+Docker 单机部署建议先参考 `docs/rocketmq-docker.md`。
 
-```text
-http://localhost:15672
-```
-
-## RabbitMQ 手动验收
+## RocketMQ 手动验收
 
 启动应用：
 
 ```powershell
-mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086 --eventrush.queue.rabbit-enabled=true"
+mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086 --eventrush.queue.rocket-enabled=true"
 ```
 
 提交异步抢票：
@@ -65,26 +61,26 @@ GET http://localhost:18086/api/orders/grab-requests/你的requestId
 
 ## 管理后台观察点
 
-登录 RabbitMQ 管理后台后，重点看：
+如果后续安装 RocketMQ Dashboard，重点看：
 
-- `Exchanges`：应出现 `eventrush.grab.exchange` 和 `eventrush.grab.dlx`。
-- `Queues`：应出现 `eventrush.grab.queue` 和 `eventrush.grab.dlq`。
-- 提交请求时，业务队列会短暂出现消息；消费者处理后消息被确认并消失。
+- Topic：应出现 `eventrush-grab-topic`。
+- Consumer Group：应出现 `eventrush-grab-consumer`。
+- Producer Group：应出现 `eventrush-grab-producer`。
+- 提交请求时，Topic 中会产生抢票消息，消费者处理后结果变为 `SUCCESS` 或 `FAILED`。
 
 ## 你需要学会的点
 
-- Exchange 负责接收消息，Queue 负责存放消息，Routing Key 决定消息进入哪个队列。
-- RabbitMQ 削峰的关键是：接口快速投递消息，消费者按自己的速度处理。
-- 消费成功后消息会被确认；如果消费者处理出现未捕获异常，消息可以进入死信队列，方便排查。
-- 当前配置关闭了异常消息的默认重新入队，避免坏消息在业务队列里反复消费。
+- NameServer 负责服务发现，Broker 负责真正存储和投递消息，Topic 是消息分类。
+- RocketMQ 削峰的关键是：接口快速投递消息，消费者按自己的速度处理。
+- 当前阶段使用普通消息做抢票削峰；后续订单超时取消更适合用 RocketMQ 延时消息。
 - 当前结果查询仍存在应用内存里，适合学习链路；生产环境要把 requestId 结果写入 Redis 或数据库。
 
 ## 面试表达
 
 可以这样说：
 
-> 我在抢票链路中引入 RabbitMQ 做削峰。接口层收到请求后写入 Direct Exchange，通过 routing key 路由到抢票队列；消费者异步处理扣库存和创建订单。异常消息通过死信交换机进入死信队列，便于后续排查和补偿。
+> 我在抢票链路中引入 RocketMQ 做削峰。接口层收到请求后把抢票消息发送到 Topic，消费者组异步消费消息，再复用原有抢票逻辑完成扣库存和创建订单。这样可以把瞬时请求洪峰转成后端可控的消息消费流。
 
 ## 下一阶段建议
 
-第 10 阶段可以做 RabbitMQ 的“生产化细节”：消费者幂等、失败重试次数、死信消息查看接口，以及把异步请求结果从内存迁移到 Redis 或数据库。
+第 10 阶段可以做 RocketMQ 的“生产化细节”：消费者幂等、失败重试、消息消费日志，以及用延时消息替代当前的定时扫描取消超时订单。
