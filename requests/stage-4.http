@@ -1,0 +1,27 @@
+### 抢一张票
+POST http://localhost:18084/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 500,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 支付订单，运行前把 1 替换成抢票接口返回的 id
+POST http://localhost:18084/api/orders/1/pay
+
+### 查询电子票，运行前替换 ticketCode，预期 VALID
+GET http://localhost:18084/api/tickets/替换成支付接口返回的 ticketCode
+
+### 核验电子票，运行前替换 ticketCode
+POST http://localhost:18084/api/tickets/verify
+Content-Type: application/json
+
+{
+  "ticketCode": "替换成支付接口返回的 ticketCode",
+  "verifierId": 99
+}
+
+### 再次查询电子票，运行前替换 ticketCode，预期 VERIFIED
+GET http://localhost:18084/api/tickets/替换成支付接口返回的 ticketCode

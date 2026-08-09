@@ -25,6 +25,7 @@ public class TicketingService {
     private final Map<Long, TicketOrder> orders = new ConcurrentHashMap<>();
     private final Map<String, ElectronicTicket> tickets = new ConcurrentHashMap<>();
     private final TicketOrderRepository ticketOrderRepository;
+    private final ElectronicTicketRepository electronicTicketRepository;
     private final boolean redisStockEnabled;
     private final RedisTicketStockService redisTicketStockService;
 
@@ -32,11 +33,13 @@ public class TicketingService {
     public TicketingService(
             EventCatalogService eventCatalogService,
             TicketOrderRepository ticketOrderRepository,
+            ElectronicTicketRepository electronicTicketRepository,
             @Value("${eventrush.stock.redis-enabled:false}") boolean redisStockEnabled,
             ObjectProvider<RedisTicketStockService> redisTicketStockService
     ) {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = ticketOrderRepository;
+        this.electronicTicketRepository = electronicTicketRepository;
         this.redisStockEnabled = redisStockEnabled;
         this.redisTicketStockService = redisTicketStockService.getIfAvailable();
     }
@@ -44,6 +47,7 @@ public class TicketingService {
     public TicketingService(EventCatalogService eventCatalogService) {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = null;
+        this.electronicTicketRepository = null;
         this.redisStockEnabled = false;
         this.redisTicketStockService = null;
     }
@@ -161,12 +165,22 @@ public class TicketingService {
             orders.put(orderId, paidOrder);
         }
 
+        ElectronicTicket ticket = createElectronicTicket(orderId);
+        return ticket;
+    }
+
+    private ElectronicTicket createElectronicTicket(Long orderId) {
+        String ticketCode = "ER-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
+        LocalDateTime generatedTime = LocalDateTime.now();
+        if (electronicTicketRepository != null) {
+            return electronicTicketRepository.create(orderId, ticketCode, generatedTime);
+        }
         ElectronicTicket ticket = new ElectronicTicket(
                 ticketIdGenerator.getAndIncrement(),
                 orderId,
-                "ER-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase(),
+                ticketCode,
                 TicketStatus.VALID,
-                LocalDateTime.now(),
+                generatedTime,
                 null,
                 null
         );
@@ -175,6 +189,10 @@ public class TicketingService {
     }
 
     public ElectronicTicket getTicket(String ticketCode) {
+        if (electronicTicketRepository != null) {
+            return electronicTicketRepository.findByCode(ticketCode)
+                    .orElseThrow(() -> new BusinessException("ticket not found"));
+        }
         ElectronicTicket ticket = tickets.get(ticketCode);
         if (ticket == null) {
             throw new BusinessException("ticket not found");
@@ -186,6 +204,9 @@ public class TicketingService {
         ElectronicTicket ticket = getTicket(ticketCode);
         if (ticket.status() == TicketStatus.VERIFIED) {
             throw new BusinessException("ticket has already been verified");
+        }
+        if (electronicTicketRepository != null) {
+            return electronicTicketRepository.markVerified(ticketCode, verifierId, LocalDateTime.now());
         }
         ElectronicTicket verified = ticket.verify(verifierId, LocalDateTime.now());
         tickets.put(ticketCode, verified);

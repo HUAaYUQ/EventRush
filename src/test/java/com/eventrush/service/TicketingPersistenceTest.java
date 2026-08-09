@@ -1,7 +1,9 @@
 package com.eventrush.service;
 
+import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,7 +18,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "eventrush.stock.redis-enabled=false"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
-@Sql(statements = "DELETE FROM ticket_order", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(statements = {
+        "DELETE FROM electronic_ticket",
+        "DELETE FROM ticket_order"
+}, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 class TicketingPersistenceTest {
 
     @Autowired
@@ -24,6 +29,9 @@ class TicketingPersistenceTest {
 
     @Autowired
     private TicketOrderRepository ticketOrderRepository;
+
+    @Autowired
+    private ElectronicTicketRepository electronicTicketRepository;
 
     @Test
     void persistsOrderAndPaymentStatus() {
@@ -49,5 +57,29 @@ class TicketingPersistenceTest {
         assertThatThrownBy(() -> ticketingService.grabTicket(301L, 101L, 1001L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("user has already grabbed this ticket");
+    }
+
+    @Test
+    void persistsTicketAndVerificationStatus() {
+        TicketOrder order = ticketingService.grabTicket(302L, 101L, 1001L);
+        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+
+        assertThat(electronicTicketRepository.findByCode(ticket.ticketCode()))
+                .get()
+                .extracting(ElectronicTicket::status)
+                .isEqualTo(TicketStatus.VALID);
+
+        ticketingService.verifyTicket(ticket.ticketCode(), 99L);
+
+        assertThat(electronicTicketRepository.findByCode(ticket.ticketCode()))
+                .get()
+                .satisfies(verified -> {
+                    assertThat(verified.status()).isEqualTo(TicketStatus.VERIFIED);
+                    assertThat(verified.verifierId()).isEqualTo(99L);
+                });
+
+        assertThatThrownBy(() -> ticketingService.verifyTicket(ticket.ticketCode(), 99L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("ticket has already been verified");
     }
 }
