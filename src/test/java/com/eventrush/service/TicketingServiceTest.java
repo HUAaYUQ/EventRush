@@ -48,6 +48,20 @@ class TicketingServiceTest {
     }
 
     @Test
+    void repeatedPaymentReturnsSameTicket() {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+        TicketOrder order = ticketingService.grabTicket(1L, 101L, 1001L);
+
+        ElectronicTicket first = ticketingService.payOrder(order.id());
+        ElectronicTicket second = ticketingService.payOrder(order.id());
+
+        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(second.ticketCode()).isEqualTo(first.ticketCode());
+    }
+
+    @Test
     void rejectsDuplicateGrabForSameUserAndTicketCategory() {
         EventCatalogService catalogService = new EventCatalogService();
         catalogService.seedData();

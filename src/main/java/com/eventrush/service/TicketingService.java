@@ -205,6 +205,9 @@ public class TicketingService {
     @Transactional
     public ElectronicTicket payOrder(Long orderId) {
         TicketOrder order = getOrder(orderId);
+        if (order.status() == OrderStatus.PAID) {
+            return getTicketByOrderId(orderId);
+        }
         if (order.status() != OrderStatus.PENDING_PAYMENT) {
             throw new BusinessException("only pending payment orders can be paid");
         }
@@ -218,6 +221,17 @@ public class TicketingService {
 
         ElectronicTicket ticket = createElectronicTicket(orderId);
         return ticket;
+    }
+
+    private ElectronicTicket getTicketByOrderId(Long orderId) {
+        if (electronicTicketRepository != null) {
+            return electronicTicketRepository.findByOrderId(orderId)
+                    .orElseThrow(() -> new BusinessException("ticket not found"));
+        }
+        return tickets.values().stream()
+                .filter(ticket -> ticket.orderId().equals(orderId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("ticket not found"));
     }
 
     private ElectronicTicket createElectronicTicket(Long orderId) {

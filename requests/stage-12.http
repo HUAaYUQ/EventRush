@@ -1,0 +1,18 @@
+### 第 12 阶段：抢票生成订单
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 9700,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 第一次支付，把订单 id 换成上一步返回值
+POST http://localhost:18086/api/orders/replace-with-order-id/pay
+
+### 第二次重复支付，仍然使用同一个订单 id，预期返回同一张电子票
+POST http://localhost:18086/api/orders/replace-with-order-id/pay
+
+### 查询订单，预期状态保持 PAID
+GET http://localhost:18086/api/orders/replace-with-order-id

@@ -82,4 +82,18 @@ class TicketingPersistenceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("ticket has already been verified");
     }
+
+    @Test
+    void repeatedPaymentReturnsExistingTicket() {
+        TicketOrder order = ticketingService.grabTicket(303L, 101L, 1001L);
+        ElectronicTicket first = ticketingService.payOrder(order.id());
+
+        ElectronicTicket second = ticketingService.payOrder(order.id());
+
+        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(second.ticketCode()).isEqualTo(first.ticketCode());
+        assertThat(electronicTicketRepository.findByOrderId(order.id())).get()
+                .extracting(ElectronicTicket::ticketCode)
+                .isEqualTo(first.ticketCode());
+    }
 }
