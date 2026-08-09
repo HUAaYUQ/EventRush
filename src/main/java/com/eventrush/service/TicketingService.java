@@ -14,6 +14,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TicketingService {
@@ -23,22 +24,26 @@ public class TicketingService {
     private final AtomicLong ticketIdGenerator = new AtomicLong(1);
     private final Map<Long, TicketOrder> orders = new ConcurrentHashMap<>();
     private final Map<String, ElectronicTicket> tickets = new ConcurrentHashMap<>();
+    private final TicketOrderRepository ticketOrderRepository;
     private final boolean redisStockEnabled;
     private final RedisTicketStockService redisTicketStockService;
 
     @Autowired
     public TicketingService(
             EventCatalogService eventCatalogService,
+            TicketOrderRepository ticketOrderRepository,
             @Value("${eventrush.stock.redis-enabled:false}") boolean redisStockEnabled,
             ObjectProvider<RedisTicketStockService> redisTicketStockService
     ) {
         this.eventCatalogService = eventCatalogService;
+        this.ticketOrderRepository = ticketOrderRepository;
         this.redisStockEnabled = redisStockEnabled;
         this.redisTicketStockService = redisTicketStockService.getIfAvailable();
     }
 
     public TicketingService(EventCatalogService eventCatalogService) {
         this.eventCatalogService = eventCatalogService;
+        this.ticketOrderRepository = null;
         this.redisStockEnabled = false;
         this.redisTicketStockService = null;
     }
@@ -56,7 +61,7 @@ public class TicketingService {
                 ));
     }
 
-    // ponytail: in-memory orders need one JVM lock; replace with DB unique indexes when MySQL is introduced.
+    @Transactional
     public synchronized TicketOrder grabTicket(Long userId, Long sessionId, Long ticketCategoryId) {
         eventCatalogService.getTicketCategory(sessionId, ticketCategoryId);
         if (hasGrabbed(userId, sessionId, ticketCategoryId)) {
@@ -67,28 +72,54 @@ public class TicketingService {
         }
         eventCatalogService.deductStock(sessionId, ticketCategoryId);
         LocalDateTime now = LocalDateTime.now();
-        TicketOrder order = new TicketOrder(
-                orderIdGenerator.getAndIncrement(),
+        TicketOrder order = createPendingOrder(
                 userId,
                 eventCatalogService.getEventIdBySessionId(sessionId),
                 sessionId,
                 ticketCategoryId,
-                OrderStatus.PENDING_PAYMENT,
                 now,
-                null,
-                null,
                 now.plusMinutes(15)
         );
-        orders.put(order.id(), order);
         return order;
     }
 
     private boolean hasGrabbed(Long userId, Long sessionId, Long ticketCategoryId) {
+        if (ticketOrderRepository != null) {
+            return ticketOrderRepository.existsActiveGrab(userId, sessionId, ticketCategoryId);
+        }
         return orders.values().stream()
                 .anyMatch(order -> order.userId().equals(userId)
                         && order.sessionId().equals(sessionId)
                         && order.ticketCategoryId().equals(ticketCategoryId)
                         && order.status() != OrderStatus.CANCELED);
+    }
+
+    private TicketOrder createPendingOrder(
+            Long userId,
+            Long eventId,
+            Long sessionId,
+            Long ticketCategoryId,
+            LocalDateTime createdTime,
+            LocalDateTime expireTime
+    ) {
+        if (ticketOrderRepository != null) {
+            return ticketOrderRepository.createPending(userId, eventId, sessionId, ticketCategoryId, createdTime, expireTime);
+        }
+        // ponytail: only used by small unit tests; app runtime writes orders through TicketOrderRepository.
+        TicketOrder order = new TicketOrder(
+                orderIdGenerator.getAndIncrement(),
+                userId,
+                eventId,
+                sessionId,
+                ticketCategoryId,
+                OrderStatus.PENDING_PAYMENT,
+                createdTime,
+                null,
+                null,
+                expireTime
+        );
+        orders.put(order.id(), order);
+        return order;
     }
 
     private void deductRedisStock(Long userId, Long sessionId, Long ticketCategoryId) {
@@ -105,6 +136,10 @@ public class TicketingService {
     }
 
     public TicketOrder getOrder(Long orderId) {
+        if (ticketOrderRepository != null) {
+            return ticketOrderRepository.findById(orderId)
+                    .orElseThrow(() -> new BusinessException("order not found"));
+        }
         TicketOrder order = orders.get(orderId);
         if (order == null) {
             throw new BusinessException("order not found");
@@ -112,13 +147,19 @@ public class TicketingService {
         return order;
     }
 
+    @Transactional
     public ElectronicTicket payOrder(Long orderId) {
         TicketOrder order = getOrder(orderId);
         if (order.status() != OrderStatus.PENDING_PAYMENT) {
             throw new BusinessException("only pending payment orders can be paid");
         }
-        TicketOrder paidOrder = order.paid(LocalDateTime.now());
-        orders.put(orderId, paidOrder);
+        LocalDateTime payTime = LocalDateTime.now();
+        if (ticketOrderRepository != null) {
+            ticketOrderRepository.markPaid(orderId, payTime);
+        } else {
+            TicketOrder paidOrder = order.paid(payTime);
+            orders.put(orderId, paidOrder);
+        }
 
         ElectronicTicket ticket = new ElectronicTicket(
                 ticketIdGenerator.getAndIncrement(),

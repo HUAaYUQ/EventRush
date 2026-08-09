@@ -1,0 +1,53 @@
+package com.eventrush.service;
+
+import com.eventrush.domain.OrderStatus;
+import com.eventrush.domain.TicketOrder;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.jdbc.Sql;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@SpringBootTest(properties = {
+        "spring.datasource.url=jdbc:h2:mem:eventrush-test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
+        "eventrush.stock.redis-enabled=false"
+})
+@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
+@Sql(statements = "DELETE FROM ticket_order", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+class TicketingPersistenceTest {
+
+    @Autowired
+    private TicketingService ticketingService;
+
+    @Autowired
+    private TicketOrderRepository ticketOrderRepository;
+
+    @Test
+    void persistsOrderAndPaymentStatus() {
+        TicketOrder order = ticketingService.grabTicket(300L, 101L, 1001L);
+
+        assertThat(ticketOrderRepository.findById(order.id()))
+                .get()
+                .extracting(TicketOrder::status)
+                .isEqualTo(OrderStatus.PENDING_PAYMENT);
+
+        ticketingService.payOrder(order.id());
+
+        assertThat(ticketOrderRepository.findById(order.id()))
+                .get()
+                .extracting(TicketOrder::status)
+                .isEqualTo(OrderStatus.PAID);
+    }
+
+    @Test
+    void databaseRejectsDuplicateGrab() {
+        ticketingService.grabTicket(301L, 101L, 1001L);
+
+        assertThatThrownBy(() -> ticketingService.grabTicket(301L, 101L, 1001L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("user has already grabbed this ticket");
+    }
+}

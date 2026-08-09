@@ -1,0 +1,18 @@
+### 抢一张票，订单会写入数据库
+POST http://localhost:18083/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 400,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 查询订单，运行前把 1 替换成抢票接口返回的 id，预期 PENDING_PAYMENT
+GET http://localhost:18083/api/orders/1
+
+### 支付订单，运行前把 1 替换成抢票接口返回的 id
+POST http://localhost:18083/api/orders/1/pay
+
+### 再次查询订单，运行前把 1 替换成抢票接口返回的 id，预期 PAID
+GET http://localhost:18083/api/orders/1

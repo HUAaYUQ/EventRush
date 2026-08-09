@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: ${EVENTRUSH_MYSQL_URL:jdbc:mysql://localhost:3306/eventrush?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${EVENTRUSH_MYSQL_USERNAME:root}
+    password: ${EVENTRUSH_MYSQL_PASSWORD:}
+  sql:
+    init:
+      mode: never
