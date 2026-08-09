@@ -77,6 +77,12 @@ mvn test
 docs/api-reference.md
 ```
 
+项目学习地图：
+
+```text
+docs/learning-map.md
+```
+
 HTTP 示例文件：
 
 ```text
@@ -142,7 +148,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-19-acceptance.md
+docs/stage-20-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
