@@ -1,0 +1,12 @@
+### 第 7 阶段：确认应用可访问
+GET http://localhost:18086/api/events/1
+
+### 单个用户抢票，用于和压测脚本结果对照
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 9100,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}

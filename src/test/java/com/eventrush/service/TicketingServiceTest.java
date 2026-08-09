@@ -4,6 +4,11 @@ import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketStatus;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,5 +73,51 @@ class TicketingServiceTest {
         assertThatThrownBy(() -> ticketingService.grabTicket(11L, 101L, 1002L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("ticket stock is insufficient");
+    }
+
+    @Test
+    void concurrentGrabDoesNotOversell() throws InterruptedException {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+        int users = 40;
+        AtomicInteger successCount = new AtomicInteger();
+        AtomicInteger insufficientCount = new AtomicInteger();
+        CountDownLatch startLine = new CountDownLatch(1);
+        CountDownLatch finishLine = new CountDownLatch(users);
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+
+        try {
+            for (long userId = 1; userId <= users; userId++) {
+                long currentUserId = userId;
+                executor.submit(() -> {
+                    try {
+                        startLine.await();
+                        ticketingService.grabTicket(currentUserId, 101L, 1002L);
+                        successCount.incrementAndGet();
+                    } catch (BusinessException exception) {
+                        if ("ticket stock is insufficient".equals(exception.getMessage())) {
+                            insufficientCount.incrementAndGet();
+                        } else {
+                            throw exception;
+                        }
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        finishLine.countDown();
+                    }
+                });
+            }
+
+            startLine.countDown();
+
+            assertThat(finishLine.await(5, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(successCount.get()).isEqualTo(10);
+        assertThat(insufficientCount.get()).isEqualTo(30);
+        assertThat(catalogService.getTicketCategory(101L, 1002L).remainingStock()).isZero();
     }
 }
