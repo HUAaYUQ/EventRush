@@ -109,6 +109,30 @@ public class TicketOrderRepository {
         );
     }
 
+    public List<TicketOrder> findByUserId(Long userId) {
+        return jdbcTemplate.query("""
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, order_status,
+                               created_time, pay_time, cancel_time, expire_time
+                        FROM ticket_order
+                        WHERE user_id = ?
+                        ORDER BY id DESC
+                        """,
+                (resultSet, rowNumber) -> new TicketOrder(
+                        resultSet.getLong("id"),
+                        resultSet.getLong("user_id"),
+                        resultSet.getLong("event_id"),
+                        resultSet.getLong("session_id"),
+                        resultSet.getLong("ticket_category_id"),
+                        OrderStatus.valueOf(resultSet.getString("order_status")),
+                        resultSet.getObject("created_time", LocalDateTime.class),
+                        resultSet.getObject("pay_time", LocalDateTime.class),
+                        resultSet.getObject("cancel_time", LocalDateTime.class),
+                        resultSet.getObject("expire_time", LocalDateTime.class)
+                ),
+                userId
+        );
+    }
+
     public boolean existsActiveGrab(Long userId, Long sessionId, Long ticketCategoryId) {
         Integer count = jdbcTemplate.queryForObject("""
                         SELECT COUNT(*)

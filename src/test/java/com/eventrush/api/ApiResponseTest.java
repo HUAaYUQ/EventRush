@@ -1,5 +1,8 @@
 package com.eventrush.api;
 
+import com.eventrush.domain.ElectronicTicket;
+import com.eventrush.domain.TicketOrder;
+import com.eventrush.service.TicketingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -29,6 +32,9 @@ class ApiResponseTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private TicketingService ticketingService;
 
     @Test
     void wrapsSuccessResponse() throws Exception {
@@ -75,5 +81,30 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.message").value("sessionId is required"))
                 .andExpect(jsonPath("$.traceId").value("trace-validation"))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void adminQueriesOrdersAndTickets() throws Exception {
+        TicketOrder order = ticketingService.grabTicket(9800L, 101L, 1001L);
+        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+
+        mockMvc.perform(get("/api/admin/users/9800/orders").header("X-Trace-Id", "trace-admin-orders"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.traceId").value("trace-admin-orders"))
+                .andExpect(jsonPath("$.data[0].id").value(order.id()))
+                .andExpect(jsonPath("$.data[0].status").value("PAID"));
+
+        mockMvc.perform(get("/api/admin/orders/%s/ticket".formatted(order.id())).header("X-Trace-Id", "trace-admin-order-ticket"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()))
+                .andExpect(jsonPath("$.data.status").value("VALID"));
+
+        mockMvc.perform(get("/api/admin/tickets/%s".formatted(ticket.ticketCode())).header("X-Trace-Id", "trace-admin-ticket"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.orderId").value(order.id()))
+                .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()));
     }
 }

@@ -202,6 +202,15 @@ public class TicketingService {
         return order;
     }
 
+    public List<TicketOrder> listOrdersByUser(Long userId) {
+        if (ticketOrderRepository != null) {
+            return ticketOrderRepository.findByUserId(userId);
+        }
+        return orders.values().stream()
+                .filter(order -> order.userId().equals(userId))
+                .toList();
+    }
+
     @Transactional
     public ElectronicTicket payOrder(Long orderId) {
         TicketOrder order = getOrder(orderId);
@@ -223,7 +232,7 @@ public class TicketingService {
         return ticket;
     }
 
-    private ElectronicTicket getTicketByOrderId(Long orderId) {
+    public ElectronicTicket getTicketByOrderId(Long orderId) {
         if (electronicTicketRepository != null) {
             return electronicTicketRepository.findByOrderId(orderId)
                     .orElseThrow(() -> new BusinessException("ticket not found"));

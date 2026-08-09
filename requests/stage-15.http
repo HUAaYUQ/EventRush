@@ -1,0 +1,26 @@
+### 第 15 阶段：先抢票生成订单
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+X-Trace-Id: trace-admin-demo-001
+
+{
+  "userId": 9800,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 支付订单，把订单 id 换成上一步返回值
+POST http://localhost:18086/api/orders/replace-with-order-id/pay
+X-Trace-Id: trace-admin-demo-002
+
+### 按用户查询订单
+GET http://localhost:18086/api/admin/users/9800/orders
+X-Trace-Id: trace-admin-demo-003
+
+### 按订单查询电子票
+GET http://localhost:18086/api/admin/orders/replace-with-order-id/ticket
+X-Trace-Id: trace-admin-demo-004
+
+### 按票码查询电子票，把 ticketCode 换成支付接口返回值
+GET http://localhost:18086/api/admin/tickets/replace-with-ticket-code
+X-Trace-Id: trace-admin-demo-005
