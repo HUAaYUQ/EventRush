@@ -38,6 +38,12 @@ Docker 单机部署建议先参考 `docs/rocketmq-docker.md`。
 mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086 --eventrush.queue.rocket-enabled=true"
 ```
 
+如果 RocketMQ 跑在 VMware 虚拟机里，需要把 NameServer 地址换成虚拟机 IP，例如：
+
+```powershell
+mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086 --eventrush.queue.rocket-enabled=true --rocketmq.name-server=192.168.233.128:9876"
+```
+
 提交异步抢票：
 
 ```http
@@ -51,13 +57,21 @@ Content-Type: application/json
 }
 ```
 
-返回 `PENDING` 后，等待 1 秒，再查询：
+返回 `PENDING` 后，等待几秒，再查询：
 
 ```http
 GET http://localhost:18086/api/orders/grab-requests/你的requestId
 ```
 
-预期看到 `SUCCESS`，并且有 `orderId`。
+预期看到 `SUCCESS`，并且有 `orderId`。如果第一次查询仍是 `PENDING`，说明消息还在异步消费中，过几秒再查。
+
+## 当前真实联调记录
+
+- RocketMQ NameServer：`192.168.233.128:9876`
+- Broker：`192.168.233.128:10911`
+- Windows 到 `9876` 和 `10911` 端口连通。
+- EventRush 启动后，Producer 和 Consumer 都连接到 RocketMQ。
+- 异步抢票请求先返回 `PENDING`，稍后查询变为 `SUCCESS`，并生成订单 `orderId=1`。
 
 ## 管理后台观察点
 
