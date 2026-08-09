@@ -17,7 +17,7 @@ rocketmq:
 
 eventrush:
   admin:
-    key: eventrush-admin-key
+    key: ${EVENTRUSH_ADMIN_KEY:eventrush-admin-key}
   cache:
     redis-enabled: false
     event-detail-ttl-seconds: 300

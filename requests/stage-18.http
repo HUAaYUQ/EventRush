@@ -1,0 +1,18 @@
+### 第 18 阶段：环境变量密钥验证
+### 启动前先在 PowerShell 执行：
+### $env:EVENTRUSH_ADMIN_KEY="my-local-admin-key"
+### mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086"
+
+### 未携带管理密钥，预期 401
+GET http://localhost:18086/api/admin/users/9800/orders
+X-Trace-Id: trace-admin-no-key
+
+### 携带旧默认密钥，如果已经设置 EVENTRUSH_ADMIN_KEY，预期 401
+GET http://localhost:18086/api/admin/users/9800/orders
+X-Trace-Id: trace-admin-old-key
+X-Admin-Key: eventrush-admin-key
+
+### 携带环境变量中的新密钥，预期通过鉴权
+GET http://localhost:18086/api/admin/users/9800/orders
+X-Trace-Id: trace-admin-env-key
+X-Admin-Key: my-local-admin-key

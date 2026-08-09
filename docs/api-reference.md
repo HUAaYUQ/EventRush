@@ -37,7 +37,7 @@ http://localhost:18086
 | 请求头 | 是否必填 | 说明 |
 | --- | --- | --- |
 | `X-Trace-Id` | 否 | 客户端自定义链路编号；不传时后端自动生成 |
-| `X-Admin-Key` | 管理端必填 | 访问 `/api/admin/**` 时必须携带，默认值是 `eventrush-admin-key` |
+| `X-Admin-Key` | 管理端必填 | 访问 `/api/admin/**` 时必须携带；默认值是 `eventrush-admin-key`，可通过环境变量 `EVENTRUSH_ADMIN_KEY` 覆盖 |
 
 ### 常见错误
 
@@ -207,6 +207,8 @@ Content-Type: application/json
 ```http
 X-Admin-Key: eventrush-admin-key
 ```
+
+本地默认密钥是 `eventrush-admin-key`。部署或联调时可以通过环境变量 `EVENTRUSH_ADMIN_KEY` 改成自己的密钥。
 
 ### 按用户查询订单
 

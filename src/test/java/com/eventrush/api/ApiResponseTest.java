@@ -20,7 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:eventrush-api-test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
-        "eventrush.stock.redis-enabled=false"
+        "eventrush.stock.redis-enabled=false",
+        "eventrush.admin.key=stage18-test-admin-key"
 })
 @AutoConfigureMockMvc
 @Sql(statements = {
@@ -29,6 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "DELETE FROM ticket_order"
 }, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 class ApiResponseTest {
+
+    private static final String ADMIN_KEY = "stage18-test-admin-key";
 
     @Autowired
     private MockMvc mockMvc;
@@ -89,7 +92,7 @@ class ApiResponseTest {
         ElectronicTicket ticket = ticketingService.payOrder(order.id());
 
         mockMvc.perform(get("/api/admin/users/9800/orders")
-                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Admin-Key", ADMIN_KEY)
                         .header("X-Trace-Id", "trace-admin-orders"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -98,7 +101,7 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.data[0].status").value("PAID"));
 
         mockMvc.perform(get("/api/admin/orders/%s/ticket".formatted(order.id()))
-                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Admin-Key", ADMIN_KEY)
                         .header("X-Trace-Id", "trace-admin-order-ticket"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -106,7 +109,7 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.data.status").value("VALID"));
 
         mockMvc.perform(get("/api/admin/tickets/%s".formatted(ticket.ticketCode()))
-                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Admin-Key", ADMIN_KEY)
                         .header("X-Trace-Id", "trace-admin-ticket"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -123,6 +126,20 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.message").value("admin key is invalid"))
                 .andExpect(jsonPath("$.traceId").value("trace-admin-denied"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void rejectsAdminRequestWithDefaultKeyWhenConfiguredKeyOverrides() throws Exception {
+        mockMvc.perform(get("/api/admin/users/9800/orders")
+                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Trace-Id", "trace-admin-old-key"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("X-Trace-Id", "trace-admin-old-key"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("admin key is invalid"))
+                .andExpect(jsonPath("$.traceId").value("trace-admin-old-key"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 }
