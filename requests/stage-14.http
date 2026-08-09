@@ -1,0 +1,14 @@
+### 第 14 阶段：成功响应带 traceId
+GET http://localhost:18086/api/events
+X-Trace-Id: trace-demo-001
+
+### 业务错误响应带 traceId
+GET http://localhost:18086/api/events/999
+X-Trace-Id: trace-demo-002
+
+### 参数校验错误响应带 traceId
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+X-Trace-Id: trace-demo-003
+
+{}
