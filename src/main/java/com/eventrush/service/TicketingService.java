@@ -27,8 +27,12 @@ public class TicketingService {
     private final Map<String, ElectronicTicket> tickets = new ConcurrentHashMap<>();
     private final TicketOrderRepository ticketOrderRepository;
     private final ElectronicTicketRepository electronicTicketRepository;
+    private final RateLimitService rateLimitService;
     private final long orderExpireSeconds;
     private final boolean redisStockEnabled;
+    private final boolean redisRateLimitEnabled;
+    private final int grabRateLimit;
+    private final int grabRateLimitWindowSeconds;
     private final RedisTicketStockService redisTicketStockService;
 
     @Autowired
@@ -36,15 +40,23 @@ public class TicketingService {
             EventCatalogService eventCatalogService,
             TicketOrderRepository ticketOrderRepository,
             ElectronicTicketRepository electronicTicketRepository,
+            ObjectProvider<RateLimitService> rateLimitService,
             @Value("${eventrush.order.expire-seconds:900}") long orderExpireSeconds,
             @Value("${eventrush.stock.redis-enabled:false}") boolean redisStockEnabled,
+            @Value("${eventrush.rate-limit.redis-enabled:false}") boolean redisRateLimitEnabled,
+            @Value("${eventrush.rate-limit.grab-limit:3}") int grabRateLimit,
+            @Value("${eventrush.rate-limit.grab-window-seconds:10}") int grabRateLimitWindowSeconds,
             ObjectProvider<RedisTicketStockService> redisTicketStockService
     ) {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = ticketOrderRepository;
         this.electronicTicketRepository = electronicTicketRepository;
+        this.rateLimitService = rateLimitService.getIfAvailable();
         this.orderExpireSeconds = orderExpireSeconds;
         this.redisStockEnabled = redisStockEnabled;
+        this.redisRateLimitEnabled = redisRateLimitEnabled;
+        this.grabRateLimit = grabRateLimit;
+        this.grabRateLimitWindowSeconds = grabRateLimitWindowSeconds;
         this.redisTicketStockService = redisTicketStockService.getIfAvailable();
     }
 
@@ -52,8 +64,12 @@ public class TicketingService {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = null;
         this.electronicTicketRepository = null;
+        this.rateLimitService = null;
         this.orderExpireSeconds = 900;
         this.redisStockEnabled = false;
+        this.redisRateLimitEnabled = false;
+        this.grabRateLimit = 3;
+        this.grabRateLimitWindowSeconds = 10;
         this.redisTicketStockService = null;
     }
 
@@ -72,6 +88,7 @@ public class TicketingService {
 
     @Transactional
     public synchronized TicketOrder grabTicket(Long userId, Long sessionId, Long ticketCategoryId) {
+        checkGrabRateLimit(userId);
         eventCatalogService.getTicketCategory(sessionId, ticketCategoryId);
         if (hasGrabbed(userId, sessionId, ticketCategoryId)) {
             throw new BusinessException("user has already grabbed this ticket");
@@ -90,6 +107,15 @@ public class TicketingService {
                 now.plusSeconds(orderExpireSeconds)
         );
         return order;
+    }
+
+    private void checkGrabRateLimit(Long userId) {
+        if (!redisRateLimitEnabled) {
+            return;
+        }
+        if (!rateLimitService.allowGrab(userId, grabRateLimit, grabRateLimitWindowSeconds)) {
+            throw new BusinessException("too many grab requests");
+        }
     }
 
     private boolean hasGrabbed(Long userId, Long sessionId, Long ticketCategoryId) {

@@ -1,0 +1,22 @@
+### 活动详情，开启 Redis 缓存后会写入 eventrush:event:1
+GET http://localhost:18086/api/events/1
+
+### 第一次抢票，限流窗口内允许
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 800,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 同一用户第二次抢票，启动参数 grab-limit=1 时预期返回 400
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 800,
+  "sessionId": 101,
+  "ticketCategoryId": 9999
+}

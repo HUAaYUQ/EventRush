@@ -11,6 +11,13 @@ spring:
       mode: always
 
 eventrush:
+  cache:
+    redis-enabled: false
+    event-detail-ttl-seconds: 300
+  rate-limit:
+    redis-enabled: false
+    grab-limit: 3
+    grab-window-seconds: 10
   stock:
     redis-enabled: false
   order:
