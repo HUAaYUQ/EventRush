@@ -2,6 +2,7 @@ package com.eventrush.api;
 
 import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.service.AsyncGrabService;
 import com.eventrush.service.TicketingService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -18,14 +19,26 @@ import org.springframework.web.bind.annotation.RestController;
 class TicketingController {
 
     private final TicketingService ticketingService;
+    private final AsyncGrabService asyncGrabService;
 
-    TicketingController(TicketingService ticketingService) {
+    TicketingController(TicketingService ticketingService, AsyncGrabService asyncGrabService) {
         this.ticketingService = ticketingService;
+        this.asyncGrabService = asyncGrabService;
     }
 
     @PostMapping("/orders/grab")
     TicketOrder grabTicket(@Valid @RequestBody GrabTicketRequest request) {
         return ticketingService.grabTicket(request.userId(), request.sessionId(), request.ticketCategoryId());
+    }
+
+    @PostMapping("/orders/grab-async")
+    AsyncGrabService.GrabResult grabTicketAsync(@Valid @RequestBody GrabTicketRequest request) {
+        return asyncGrabService.submitGrab(request.userId(), request.sessionId(), request.ticketCategoryId());
+    }
+
+    @GetMapping("/orders/grab-requests/{requestId}")
+    AsyncGrabService.GrabResult getGrabResult(@PathVariable String requestId) {
+        return asyncGrabService.getResult(requestId);
     }
 
     @PostMapping("/orders/{orderId}/pay")

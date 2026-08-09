@@ -20,6 +20,11 @@ eventrush:
     grab-window-seconds: 10
   stock:
     redis-enabled: false
+  queue:
+    redis-enabled: false
+    grab-key: eventrush:queue:grab
+    result-ttl-seconds: 600
+    consumer-scan-ms: 500
   order:
     expire-seconds: 900
     timeout-scan-ms: 5000
