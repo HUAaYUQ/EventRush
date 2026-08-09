@@ -52,6 +52,13 @@ public class EventCatalogService {
                 .orElseThrow(() -> new BusinessException("ticket category not found"));
     }
 
+    public List<TicketCategory> listTicketCategories() {
+        return events.values().stream()
+                .flatMap(event -> event.sessions().stream())
+                .flatMap(session -> session.ticketCategories().stream())
+                .toList();
+    }
+
     public synchronized TicketCategory deductStock(Long sessionId, Long ticketCategoryId) {
         Event event = findEventBySessionId(sessionId);
         List<EventSession> sessions = event.sessions().stream()

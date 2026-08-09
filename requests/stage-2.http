@@ -1,0 +1,22 @@
+### 查询活动列表
+GET http://localhost:18082/api/events
+
+### Redis 模式下抢一张票
+POST http://localhost:18082/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 200,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 同一用户重复抢同一场次同一票种，预期返回 400
+POST http://localhost:18082/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 200,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}

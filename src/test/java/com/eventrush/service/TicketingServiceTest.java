@@ -41,4 +41,32 @@ class TicketingServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("ticket has already been verified");
     }
+
+    @Test
+    void rejectsDuplicateGrabForSameUserAndTicketCategory() {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+
+        ticketingService.grabTicket(1L, 101L, 1001L);
+
+        assertThatThrownBy(() -> ticketingService.grabTicket(1L, 101L, 1001L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("user has already grabbed this ticket");
+    }
+
+    @Test
+    void rejectsGrabWhenStockIsInsufficient() {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+
+        for (long userId = 1; userId <= 10; userId++) {
+            ticketingService.grabTicket(userId, 101L, 1002L);
+        }
+
+        assertThatThrownBy(() -> ticketingService.grabTicket(11L, 101L, 1002L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("ticket stock is insufficient");
+    }
 }
