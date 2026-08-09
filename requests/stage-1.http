@@ -1,0 +1,27 @@
+### 查询活动列表
+GET http://localhost:18080/api/events
+
+### 查询活动详情
+GET http://localhost:18080/api/events/1
+
+### 抢一张票
+POST http://localhost:18080/api/orders/grab
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 支付 1 号订单
+POST http://localhost:18080/api/orders/1/pay
+
+### 核验电子票，运行前先替换 ticketCode
+POST http://localhost:18080/api/tickets/verify
+Content-Type: application/json
+
+{
+  "ticketCode": "替换成支付接口返回的 ticketCode",
+  "verifierId": 99
+}
