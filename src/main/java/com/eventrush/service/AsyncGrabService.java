@@ -9,6 +9,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,9 +26,13 @@ public class AsyncGrabService {
 
     private final TicketingService ticketingService;
     private final StringRedisTemplate redisTemplate;
+    private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
+    private final boolean rabbitQueueEnabled;
     private final boolean redisQueueEnabled;
     private final String queueKey;
+    private final String rabbitExchange;
+    private final String rabbitRoutingKey;
     private final long resultTtlSeconds;
     private final LinkedBlockingQueue<GrabMessage> memoryQueue = new LinkedBlockingQueue<>();
     private final Map<String, GrabResult> memoryResults = new ConcurrentHashMap<>();
@@ -33,16 +40,24 @@ public class AsyncGrabService {
     public AsyncGrabService(
             TicketingService ticketingService,
             StringRedisTemplate redisTemplate,
+            ObjectProvider<RabbitTemplate> rabbitTemplate,
             ObjectMapper objectMapper,
+            @Value("${eventrush.queue.rabbit-enabled:false}") boolean rabbitQueueEnabled,
             @Value("${eventrush.queue.redis-enabled:false}") boolean redisQueueEnabled,
             @Value("${eventrush.queue.grab-key:eventrush:queue:grab}") String queueKey,
+            @Value("${eventrush.queue.rabbit.exchange:eventrush.grab.exchange}") String rabbitExchange,
+            @Value("${eventrush.queue.rabbit.routing-key:eventrush.grab}") String rabbitRoutingKey,
             @Value("${eventrush.queue.result-ttl-seconds:600}") long resultTtlSeconds
     ) {
         this.ticketingService = ticketingService;
         this.redisTemplate = redisTemplate;
+        this.rabbitTemplate = rabbitTemplate.getIfAvailable();
         this.objectMapper = objectMapper;
+        this.rabbitQueueEnabled = rabbitQueueEnabled;
         this.redisQueueEnabled = redisQueueEnabled;
         this.queueKey = queueKey;
+        this.rabbitExchange = rabbitExchange;
+        this.rabbitRoutingKey = rabbitRoutingKey;
         this.resultTtlSeconds = resultTtlSeconds;
     }
 
@@ -56,7 +71,7 @@ public class AsyncGrabService {
     }
 
     public GrabResult getResult(String requestId) {
-        if (!redisQueueEnabled) {
+        if (!usesRedisResultStore()) {
             GrabResult result = memoryResults.get(requestId);
             if (result == null) {
                 throw new BusinessException("grab request not found");
@@ -76,20 +91,35 @@ public class AsyncGrabService {
 
     @Scheduled(fixedDelayString = "${eventrush.queue.consumer-scan-ms:500}")
     void consumeOne() {
+        if (rabbitQueueEnabled) {
+            return;
+        }
         Optional<GrabMessage> message = dequeue();
         message.ifPresent(this::process);
     }
 
+    @RabbitListener(
+            queues = "${eventrush.queue.rabbit.queue:eventrush.grab.queue}",
+            autoStartup = "${eventrush.queue.rabbit-enabled:false}"
+    )
+    void consumeRabbit(String json) {
+        try {
+            process(objectMapper.readValue(json, GrabMessage.class));
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException("grab rabbit message deserialization failed");
+        }
+    }
+
     private void enqueue(GrabMessage message) {
+        if (rabbitQueueEnabled) {
+            rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, writeJson(message));
+            return;
+        }
         if (!redisQueueEnabled) {
             memoryQueue.offer(message);
             return;
         }
-        try {
-            redisTemplate.opsForList().leftPush(queueKey, objectMapper.writeValueAsString(message));
-        } catch (JsonProcessingException exception) {
-            throw new BusinessException("grab message serialization failed");
-        }
+        redisTemplate.opsForList().leftPush(queueKey, writeJson(message));
     }
 
     private Optional<GrabMessage> dequeue() {
@@ -117,7 +147,7 @@ public class AsyncGrabService {
     }
 
     private void saveResult(GrabResult result) {
-        if (!redisQueueEnabled) {
+        if (!usesRedisResultStore()) {
             memoryResults.put(result.requestId(), result);
             return;
         }
@@ -129,6 +159,18 @@ public class AsyncGrabService {
             );
         } catch (JsonProcessingException exception) {
             throw new BusinessException("grab result serialization failed");
+        }
+    }
+
+    private boolean usesRedisResultStore() {
+        return redisQueueEnabled && !rabbitQueueEnabled;
+    }
+
+    private String writeJson(GrabMessage message) {
+        try {
+            return objectMapper.writeValueAsString(message);
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException("grab message serialization failed");
         }
     }
 

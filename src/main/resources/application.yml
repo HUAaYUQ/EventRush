@@ -9,6 +9,10 @@ spring:
   sql:
     init:
       mode: always
+  rabbitmq:
+    listener:
+      simple:
+        default-requeue-rejected: false
 
 eventrush:
   cache:
@@ -22,9 +26,17 @@ eventrush:
     redis-enabled: false
   queue:
     redis-enabled: false
+    rabbit-enabled: false
     grab-key: eventrush:queue:grab
     result-ttl-seconds: 600
     consumer-scan-ms: 500
+    rabbit:
+      exchange: eventrush.grab.exchange
+      queue: eventrush.grab.queue
+      routing-key: eventrush.grab
+      dead-letter-exchange: eventrush.grab.dlx
+      dead-letter-queue: eventrush.grab.dlq
+      dead-letter-routing-key: eventrush.grab.dead
   order:
     expire-seconds: 900
     timeout-scan-ms: 5000
