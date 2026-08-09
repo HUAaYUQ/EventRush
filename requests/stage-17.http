@@ -1,0 +1,55 @@
+### 第 17 阶段：查询活动列表
+GET http://localhost:18086/api/events
+X-Trace-Id: trace-api-doc-events
+
+### 查询活动详情
+GET http://localhost:18086/api/events/1
+X-Trace-Id: trace-api-doc-event-detail
+
+### 同步抢票，保存返回的 orderId
+POST http://localhost:18086/api/orders/grab
+Content-Type: application/json
+X-Trace-Id: trace-api-doc-grab
+
+{
+  "userId": 9900,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 支付订单，把 orderId 换成抢票接口返回值，保存返回的 ticketCode
+POST http://localhost:18086/api/orders/replace-with-order-id/pay
+X-Trace-Id: trace-api-doc-pay
+
+### 查询订单详情
+GET http://localhost:18086/api/orders/replace-with-order-id
+X-Trace-Id: trace-api-doc-order
+
+### 查询电子票，把 ticketCode 换成支付接口返回值
+GET http://localhost:18086/api/tickets/replace-with-ticket-code
+X-Trace-Id: trace-api-doc-ticket
+
+### 核验电子票，把 ticketCode 换成支付接口返回值
+POST http://localhost:18086/api/tickets/verify
+Content-Type: application/json
+X-Trace-Id: trace-api-doc-verify
+
+{
+  "ticketCode": "replace-with-ticket-code",
+  "verifierId": 7001
+}
+
+### 管理端：按用户查询订单，需要 X-Admin-Key
+GET http://localhost:18086/api/admin/users/9900/orders
+X-Trace-Id: trace-api-doc-admin-orders
+X-Admin-Key: eventrush-admin-key
+
+### 管理端：按订单查询电子票，需要 X-Admin-Key
+GET http://localhost:18086/api/admin/orders/replace-with-order-id/ticket
+X-Trace-Id: trace-api-doc-admin-ticket-by-order
+X-Admin-Key: eventrush-admin-key
+
+### 管理端：按票码查询电子票，需要 X-Admin-Key
+GET http://localhost:18086/api/admin/tickets/replace-with-ticket-code
+X-Trace-Id: trace-api-doc-admin-ticket-by-code
+X-Admin-Key: eventrush-admin-key
