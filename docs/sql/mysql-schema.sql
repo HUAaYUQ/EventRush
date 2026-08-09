@@ -29,3 +29,17 @@ CREATE TABLE IF NOT EXISTS electronic_ticket (
     UNIQUE KEY uk_electronic_ticket_code (ticket_code),
     KEY idx_electronic_ticket_status (ticket_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS async_grab_request (
+    request_id VARCHAR(64) PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    session_id BIGINT NOT NULL,
+    ticket_category_id BIGINT NOT NULL,
+    request_status VARCHAR(32) NOT NULL,
+    order_id BIGINT NULL,
+    error_message VARCHAR(255) NULL,
+    created_time DATETIME NOT NULL,
+    updated_time DATETIME NOT NULL,
+    KEY idx_async_grab_status (request_status, updated_time),
+    KEY idx_async_grab_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

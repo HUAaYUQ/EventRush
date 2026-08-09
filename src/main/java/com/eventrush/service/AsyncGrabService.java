@@ -3,11 +3,8 @@ package com.eventrush.service;
 import com.eventrush.domain.TicketOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.Duration;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.beans.factory.ObjectProvider;
@@ -24,6 +21,7 @@ public class AsyncGrabService {
     public static final String FAILED = "FAILED";
 
     private final TicketingService ticketingService;
+    private final AsyncGrabRequestRepository asyncGrabRequestRepository;
     private final StringRedisTemplate redisTemplate;
     private final RocketMQTemplate rocketMQTemplate;
     private final ObjectMapper objectMapper;
@@ -31,22 +29,21 @@ public class AsyncGrabService {
     private final boolean redisQueueEnabled;
     private final String queueKey;
     private final String rocketTopic;
-    private final long resultTtlSeconds;
     private final LinkedBlockingQueue<GrabMessage> memoryQueue = new LinkedBlockingQueue<>();
-    private final Map<String, GrabResult> memoryResults = new ConcurrentHashMap<>();
 
     public AsyncGrabService(
             TicketingService ticketingService,
+            AsyncGrabRequestRepository asyncGrabRequestRepository,
             StringRedisTemplate redisTemplate,
             ObjectProvider<RocketMQTemplate> rocketMQTemplate,
             ObjectMapper objectMapper,
             @Value("${eventrush.queue.rocket-enabled:false}") boolean rocketQueueEnabled,
             @Value("${eventrush.queue.redis-enabled:false}") boolean redisQueueEnabled,
             @Value("${eventrush.queue.grab-key:eventrush:queue:grab}") String queueKey,
-            @Value("${eventrush.queue.rocket.topic:eventrush-grab-topic}") String rocketTopic,
-            @Value("${eventrush.queue.result-ttl-seconds:600}") long resultTtlSeconds
+            @Value("${eventrush.queue.rocket.topic:eventrush-grab-topic}") String rocketTopic
     ) {
         this.ticketingService = ticketingService;
+        this.asyncGrabRequestRepository = asyncGrabRequestRepository;
         this.redisTemplate = redisTemplate;
         this.rocketMQTemplate = rocketMQTemplate.getIfAvailable();
         this.objectMapper = objectMapper;
@@ -54,35 +51,24 @@ public class AsyncGrabService {
         this.redisQueueEnabled = redisQueueEnabled;
         this.queueKey = queueKey;
         this.rocketTopic = rocketTopic;
-        this.resultTtlSeconds = resultTtlSeconds;
     }
 
     public GrabResult submitGrab(Long userId, Long sessionId, Long ticketCategoryId) {
         String requestId = UUID.randomUUID().toString().replace("-", "");
         GrabMessage message = new GrabMessage(requestId, userId, sessionId, ticketCategoryId);
-        GrabResult result = GrabResult.pending(requestId);
-        saveResult(result);
-        enqueue(message);
-        return result;
+        GrabResult result = asyncGrabRequestRepository.createPending(requestId, userId, sessionId, ticketCategoryId);
+        try {
+            enqueue(message);
+            return result;
+        } catch (RuntimeException exception) {
+            asyncGrabRequestRepository.markFailed(requestId, "grab message enqueue failed");
+            throw exception;
+        }
     }
 
     public GrabResult getResult(String requestId) {
-        if (!usesRedisResultStore()) {
-            GrabResult result = memoryResults.get(requestId);
-            if (result == null) {
-                throw new BusinessException("grab request not found");
-            }
-            return result;
-        }
-        String json = redisTemplate.opsForValue().get(resultKey(requestId));
-        if (json == null) {
-            throw new BusinessException("grab request not found");
-        }
-        try {
-            return objectMapper.readValue(json, GrabResult.class);
-        } catch (JsonProcessingException exception) {
-            throw new BusinessException("grab result deserialization failed");
-        }
+        return asyncGrabRequestRepository.findResult(requestId)
+                .orElseThrow(() -> new BusinessException("grab request not found"));
     }
 
     @Scheduled(fixedDelayString = "${eventrush.queue.consumer-scan-ms:500}")
@@ -130,32 +116,18 @@ public class AsyncGrabService {
     }
 
     private void process(GrabMessage message) {
-        try {
-            TicketOrder order = ticketingService.grabTicket(message.userId(), message.sessionId(), message.ticketCategoryId());
-            saveResult(GrabResult.success(message.requestId(), order.id()));
-        } catch (BusinessException exception) {
-            saveResult(GrabResult.failed(message.requestId(), exception.getMessage()));
-        }
-    }
-
-    private void saveResult(GrabResult result) {
-        if (!usesRedisResultStore()) {
-            memoryResults.put(result.requestId(), result);
+        if (!asyncGrabRequestRepository.markProcessingIfPending(message.requestId())) {
             return;
         }
         try {
-            redisTemplate.opsForValue().set(
-                    resultKey(result.requestId()),
-                    objectMapper.writeValueAsString(result),
-                    Duration.ofSeconds(resultTtlSeconds)
-            );
-        } catch (JsonProcessingException exception) {
-            throw new BusinessException("grab result serialization failed");
+            TicketOrder order = ticketingService.grabTicket(message.userId(), message.sessionId(), message.ticketCategoryId());
+            asyncGrabRequestRepository.markSuccess(message.requestId(), order.id());
+        } catch (BusinessException exception) {
+            asyncGrabRequestRepository.markFailed(message.requestId(), exception.getMessage());
+        } catch (RuntimeException exception) {
+            asyncGrabRequestRepository.markFailed(message.requestId(), "grab request processing failed");
+            throw exception;
         }
-    }
-
-    private boolean usesRedisResultStore() {
-        return redisQueueEnabled && !rocketQueueEnabled;
     }
 
     private String writeJson(GrabMessage message) {
@@ -164,10 +136,6 @@ public class AsyncGrabService {
         } catch (JsonProcessingException exception) {
             throw new BusinessException("grab message serialization failed");
         }
-    }
-
-    private String resultKey(String requestId) {
-        return "eventrush:grab-result:" + requestId;
     }
 
     record GrabMessage(String requestId, Long userId, Long sessionId, Long ticketCategoryId) {

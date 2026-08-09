@@ -29,7 +29,6 @@ eventrush:
     redis-enabled: false
     rocket-enabled: false
     grab-key: eventrush:queue:grab
-    result-ttl-seconds: 600
     consumer-scan-ms: 500
     rocket:
       topic: eventrush-grab-topic

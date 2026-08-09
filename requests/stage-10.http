@@ -1,0 +1,12 @@
+### 第 10 阶段：提交异步抢票，请求结果会落库
+POST http://localhost:18086/api/orders/grab-async
+Content-Type: application/json
+
+{
+  "userId": 9500,
+  "sessionId": 101,
+  "ticketCategoryId": 1001
+}
+
+### 查询异步抢票结果，把下面的 requestId 换成上一步返回值
+GET http://localhost:18086/api/orders/grab-requests/replace-with-request-id

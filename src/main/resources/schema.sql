@@ -23,3 +23,15 @@ CREATE TABLE IF NOT EXISTS electronic_ticket (
     CONSTRAINT uk_electronic_ticket_order UNIQUE (order_id),
     CONSTRAINT uk_electronic_ticket_code UNIQUE (ticket_code)
 );
+
+CREATE TABLE IF NOT EXISTS async_grab_request (
+    request_id VARCHAR(64) PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    session_id BIGINT NOT NULL,
+    ticket_category_id BIGINT NOT NULL,
+    request_status VARCHAR(32) NOT NULL,
+    order_id BIGINT NULL,
+    error_message VARCHAR(255) NULL,
+    created_time TIMESTAMP NOT NULL,
+    updated_time TIMESTAMP NOT NULL
+);

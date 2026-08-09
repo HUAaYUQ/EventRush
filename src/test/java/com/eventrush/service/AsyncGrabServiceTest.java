@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @Sql(statements = {
         "DELETE FROM electronic_ticket",
+        "DELETE FROM async_grab_request",
         "DELETE FROM ticket_order"
 }, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 class AsyncGrabServiceTest {
@@ -49,5 +50,26 @@ class AsyncGrabServiceTest {
                 .singleElement()
                 .extracting(GrabResult::errorMessage)
                 .isEqualTo("ticket stock is insufficient");
+    }
+
+    @Test
+    void duplicateMessageDoesNotProcessAgain() {
+        GrabResult submitted = asyncGrabService.submitGrab(720L, 101L, 1001L);
+
+        asyncGrabService.consumeOne();
+        GrabResult success = asyncGrabService.getResult(submitted.requestId());
+        asyncGrabService.consumeRocket("""
+                {
+                  "requestId": "%s",
+                  "userId": 720,
+                  "sessionId": 101,
+                  "ticketCategoryId": 1001
+                }
+                """.formatted(submitted.requestId()));
+
+        GrabResult afterDuplicate = asyncGrabService.getResult(submitted.requestId());
+        assertThat(afterDuplicate.status()).isEqualTo(AsyncGrabService.SUCCESS);
+        assertThat(afterDuplicate.orderId()).isEqualTo(success.orderId());
+        assertThat(afterDuplicate.errorMessage()).isNull();
     }
 }
