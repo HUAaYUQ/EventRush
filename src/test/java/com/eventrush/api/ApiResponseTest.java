@@ -88,23 +88,41 @@ class ApiResponseTest {
         TicketOrder order = ticketingService.grabTicket(9800L, 101L, 1001L);
         ElectronicTicket ticket = ticketingService.payOrder(order.id());
 
-        mockMvc.perform(get("/api/admin/users/9800/orders").header("X-Trace-Id", "trace-admin-orders"))
+        mockMvc.perform(get("/api/admin/users/9800/orders")
+                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Trace-Id", "trace-admin-orders"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.traceId").value("trace-admin-orders"))
                 .andExpect(jsonPath("$.data[0].id").value(order.id()))
                 .andExpect(jsonPath("$.data[0].status").value("PAID"));
 
-        mockMvc.perform(get("/api/admin/orders/%s/ticket".formatted(order.id())).header("X-Trace-Id", "trace-admin-order-ticket"))
+        mockMvc.perform(get("/api/admin/orders/%s/ticket".formatted(order.id()))
+                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Trace-Id", "trace-admin-order-ticket"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()))
                 .andExpect(jsonPath("$.data.status").value("VALID"));
 
-        mockMvc.perform(get("/api/admin/tickets/%s".formatted(ticket.ticketCode())).header("X-Trace-Id", "trace-admin-ticket"))
+        mockMvc.perform(get("/api/admin/tickets/%s".formatted(ticket.ticketCode()))
+                        .header("X-Admin-Key", "eventrush-admin-key")
+                        .header("X-Trace-Id", "trace-admin-ticket"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.orderId").value(order.id()))
                 .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()));
+    }
+
+    @Test
+    void rejectsAdminRequestWithoutAdminKey() throws Exception {
+        mockMvc.perform(get("/api/admin/users/9800/orders").header("X-Trace-Id", "trace-admin-denied"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("X-Trace-Id", "trace-admin-denied"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("admin key is invalid"))
+                .andExpect(jsonPath("$.traceId").value("trace-admin-denied"))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 }

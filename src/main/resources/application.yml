@@ -16,6 +16,8 @@ rocketmq:
     group: eventrush-grab-producer
 
 eventrush:
+  admin:
+    key: eventrush-admin-key
   cache:
     redis-enabled: false
     event-detail-ttl-seconds: 300

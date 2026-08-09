@@ -1,0 +1,18 @@
+### 第 16 阶段：未携带管理密钥，预期 401
+GET http://localhost:18086/api/admin/users/9800/orders
+X-Trace-Id: trace-admin-denied
+
+### 携带正确管理密钥，预期正常返回
+GET http://localhost:18086/api/admin/users/9800/orders
+X-Trace-Id: trace-admin-ok
+X-Admin-Key: eventrush-admin-key
+
+### 按订单查询电子票，也需要管理密钥
+GET http://localhost:18086/api/admin/orders/replace-with-order-id/ticket
+X-Trace-Id: trace-admin-ticket
+X-Admin-Key: eventrush-admin-key
+
+### 按票码查询电子票，也需要管理密钥
+GET http://localhost:18086/api/admin/tickets/replace-with-ticket-code
+X-Trace-Id: trace-admin-ticket-code
+X-Admin-Key: eventrush-admin-key
