@@ -13,3 +13,6 @@ spring:
 eventrush:
   stock:
     redis-enabled: false
+  order:
+    expire-seconds: 900
+    timeout-scan-ms: 5000

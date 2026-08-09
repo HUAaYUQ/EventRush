@@ -6,6 +6,7 @@ import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -80,6 +81,34 @@ public class TicketOrderRepository {
         ).stream().findFirst();
     }
 
+    public List<TicketOrder> findExpiredPending(LocalDateTime now, int limit) {
+        return jdbcTemplate.query("""
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, order_status,
+                               created_time, pay_time, cancel_time, expire_time
+                        FROM ticket_order
+                        WHERE order_status = ?
+                          AND expire_time <= ?
+                        ORDER BY expire_time
+                        LIMIT ?
+                        """,
+                (resultSet, rowNumber) -> new TicketOrder(
+                        resultSet.getLong("id"),
+                        resultSet.getLong("user_id"),
+                        resultSet.getLong("event_id"),
+                        resultSet.getLong("session_id"),
+                        resultSet.getLong("ticket_category_id"),
+                        OrderStatus.valueOf(resultSet.getString("order_status")),
+                        resultSet.getObject("created_time", LocalDateTime.class),
+                        resultSet.getObject("pay_time", LocalDateTime.class),
+                        resultSet.getObject("cancel_time", LocalDateTime.class),
+                        resultSet.getObject("expire_time", LocalDateTime.class)
+                ),
+                OrderStatus.PENDING_PAYMENT.name(),
+                Timestamp.valueOf(now),
+                limit
+        );
+    }
+
     public boolean existsActiveGrab(Long userId, Long sessionId, Long ticketCategoryId) {
         Integer count = jdbcTemplate.queryForObject("""
                         SELECT COUNT(*)
@@ -113,5 +142,19 @@ public class TicketOrderRepository {
             throw new BusinessException("only pending payment orders can be paid");
         }
         return findById(orderId).orElseThrow(() -> new BusinessException("order not found"));
+    }
+
+    public boolean markCanceledIfPending(Long orderId, LocalDateTime cancelTime) {
+        int updated = jdbcTemplate.update("""
+                        UPDATE ticket_order
+                        SET order_status = ?, cancel_time = ?
+                        WHERE id = ? AND order_status = ?
+                        """,
+                OrderStatus.CANCELED.name(),
+                Timestamp.valueOf(cancelTime),
+                orderId,
+                OrderStatus.PENDING_PAYMENT.name()
+        );
+        return updated == 1;
     }
 }

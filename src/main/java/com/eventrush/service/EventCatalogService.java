@@ -69,6 +69,16 @@ public class EventCatalogService {
         return getTicketCategory(sessionId, ticketCategoryId);
     }
 
+    public synchronized TicketCategory releaseStock(Long sessionId, Long ticketCategoryId) {
+        Event event = findEventBySessionId(sessionId);
+        List<EventSession> sessions = event.sessions().stream()
+                .map(session -> session.id().equals(sessionId) ? releaseToSession(session, ticketCategoryId) : session)
+                .toList();
+        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions);
+        events.put(updated.id(), updated);
+        return getTicketCategory(sessionId, ticketCategoryId);
+    }
+
     public Long getEventIdBySessionId(Long sessionId) {
         return findEventBySessionId(sessionId).id();
     }
@@ -91,6 +101,13 @@ public class EventCatalogService {
                     }
                     return category.deductOne();
                 })
+                .toList();
+        return new EventSession(session.id(), session.eventId(), session.startTime(), session.endTime(), categories);
+    }
+
+    private EventSession releaseToSession(EventSession session, Long ticketCategoryId) {
+        List<TicketCategory> categories = session.ticketCategories().stream()
+                .map(category -> category.id().equals(ticketCategoryId) ? category.releaseOne() : category)
                 .toList();
         return new EventSession(session.id(), session.eventId(), session.startTime(), session.endTime(), categories);
     }

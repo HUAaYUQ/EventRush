@@ -6,6 +6,7 @@ import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketStatus;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,6 +27,7 @@ public class TicketingService {
     private final Map<String, ElectronicTicket> tickets = new ConcurrentHashMap<>();
     private final TicketOrderRepository ticketOrderRepository;
     private final ElectronicTicketRepository electronicTicketRepository;
+    private final long orderExpireSeconds;
     private final boolean redisStockEnabled;
     private final RedisTicketStockService redisTicketStockService;
 
@@ -34,12 +36,14 @@ public class TicketingService {
             EventCatalogService eventCatalogService,
             TicketOrderRepository ticketOrderRepository,
             ElectronicTicketRepository electronicTicketRepository,
+            @Value("${eventrush.order.expire-seconds:900}") long orderExpireSeconds,
             @Value("${eventrush.stock.redis-enabled:false}") boolean redisStockEnabled,
             ObjectProvider<RedisTicketStockService> redisTicketStockService
     ) {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = ticketOrderRepository;
         this.electronicTicketRepository = electronicTicketRepository;
+        this.orderExpireSeconds = orderExpireSeconds;
         this.redisStockEnabled = redisStockEnabled;
         this.redisTicketStockService = redisTicketStockService.getIfAvailable();
     }
@@ -48,6 +52,7 @@ public class TicketingService {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = null;
         this.electronicTicketRepository = null;
+        this.orderExpireSeconds = 900;
         this.redisStockEnabled = false;
         this.redisTicketStockService = null;
     }
@@ -82,7 +87,7 @@ public class TicketingService {
                 sessionId,
                 ticketCategoryId,
                 now,
-                now.plusMinutes(15)
+                now.plusSeconds(orderExpireSeconds)
         );
         return order;
     }
@@ -211,5 +216,41 @@ public class TicketingService {
         ElectronicTicket verified = ticket.verify(verifierId, LocalDateTime.now());
         tickets.put(ticketCode, verified);
         return verified;
+    }
+
+    @Transactional
+    public int cancelExpiredOrders() {
+        if (ticketOrderRepository == null) {
+            return cancelExpiredMemoryOrders();
+        }
+        List<TicketOrder> expiredOrders = ticketOrderRepository.findExpiredPending(LocalDateTime.now(), 100);
+        int canceled = 0;
+        for (TicketOrder order : expiredOrders) {
+            if (ticketOrderRepository.markCanceledIfPending(order.id(), LocalDateTime.now())) {
+                releaseStock(order);
+                canceled++;
+            }
+        }
+        return canceled;
+    }
+
+    private int cancelExpiredMemoryOrders() {
+        LocalDateTime now = LocalDateTime.now();
+        int canceled = 0;
+        for (TicketOrder order : List.copyOf(orders.values())) {
+            if (order.status() == OrderStatus.PENDING_PAYMENT && !order.expireTime().isAfter(now)) {
+                orders.put(order.id(), order.canceled(now));
+                releaseStock(order);
+                canceled++;
+            }
+        }
+        return canceled;
+    }
+
+    private void releaseStock(TicketOrder order) {
+        eventCatalogService.releaseStock(order.sessionId(), order.ticketCategoryId());
+        if (redisStockEnabled && redisTicketStockService != null) {
+            redisTicketStockService.release(order.userId(), order.sessionId(), order.ticketCategoryId());
+        }
     }
 }

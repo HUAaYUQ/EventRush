@@ -41,6 +41,11 @@ public class RedisTicketStockService {
         return result;
     }
 
+    public void release(Long userId, Long sessionId, Long ticketCategoryId) {
+        redisTemplate.opsForValue().increment(stockKey(sessionId, ticketCategoryId));
+        redisTemplate.opsForSet().remove(grabbedUsersKey(sessionId, ticketCategoryId), String.valueOf(userId));
+    }
+
     private String stockKey(Long sessionId, Long ticketCategoryId) {
         return "eventrush:stock:" + sessionId + ":" + ticketCategoryId;
     }

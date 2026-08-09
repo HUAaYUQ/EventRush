@@ -19,4 +19,9 @@ public record TicketOrder(
         return new TicketOrder(id, userId, eventId, sessionId, ticketCategoryId, OrderStatus.PAID,
                 createdTime, payTime, cancelTime, expireTime);
     }
+
+    public TicketOrder canceled(LocalDateTime cancelTime) {
+        return new TicketOrder(id, userId, eventId, sessionId, ticketCategoryId, OrderStatus.CANCELED,
+                createdTime, payTime, cancelTime, expireTime);
+    }
 }
