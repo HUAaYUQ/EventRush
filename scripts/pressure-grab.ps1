@@ -54,13 +54,18 @@ $okResults = @($results | Where-Object { $_.ok })
 $failedResults = @($results | Where-Object { -not $_.ok })
 $sortedLatency = @($results | Sort-Object ms | Select-Object -ExpandProperty ms)
 $averageLatency = if ($results.Count -gt 0) { [math]::Round(($results | Measure-Object ms -Average).Average, 2) } else { 0 }
+$qps = if ($elapsedMs -gt 0) { [math]::Round($results.Count * 1000 / $elapsedMs, 2) } else { 0 }
 $p95Index = if ($sortedLatency.Count -gt 0) { [math]::Max([math]::Ceiling($sortedLatency.Count * 0.95) - 1, 0) } else { 0 }
 $p95Latency = if ($sortedLatency.Count -gt 0) { $sortedLatency[$p95Index] } else { 0 }
+$p99Index = if ($sortedLatency.Count -gt 0) { [math]::Max([math]::Ceiling($sortedLatency.Count * 0.99) - 1, 0) } else { 0 }
+$p99Latency = if ($sortedLatency.Count -gt 0) { $sortedLatency[$p99Index] } else { 0 }
+$successRate = if ($results.Count -gt 0) { [math]::Round($okResults.Count * 100 / $results.Count, 2) } else { 0 }
 
 Write-Host "EventRush local pressure baseline"
 Write-Host "baseUrl=$BaseUrl users=$Users sessionId=$SessionId ticketCategoryId=$TicketCategoryId"
 Write-Host "success=$($okResults.Count) failed=$($failedResults.Count) elapsedMs=$elapsedMs"
-Write-Host "avgMs=$averageLatency p95Ms=$p95Latency"
+Write-Host "qps=$qps successRate=$successRate%"
+Write-Host "avgMs=$averageLatency p95Ms=$p95Latency p99Ms=$p99Latency"
 
 if ($failedResults.Count -gt 0) {
     Write-Host "failed status distribution:"

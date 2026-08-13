@@ -256,7 +256,8 @@
 | `README.md` | 仓库首页，项目展示入口 |
 | `docs/api-reference.md` | API 总文档 |
 | `docs/interview-qa.md` | 项目面试题库 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-21-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/pressure-test-guide.md` | 抢票压测指南 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-22-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
