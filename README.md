@@ -101,6 +101,12 @@ docs/pressure-test-guide.md
 docs/pressure-test-report-template.md
 ```
 
+Redis Lua 压测开关说明：
+
+```text
+docs/redis-lua-pressure-switch.md
+```
+
 HTTP 示例文件：
 
 ```text
@@ -166,7 +172,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-23-acceptance.md
+docs/stage-24-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

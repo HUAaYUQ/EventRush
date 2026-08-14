@@ -258,7 +258,8 @@
 | `docs/interview-qa.md` | 项目面试题库 |
 | `docs/pressure-test-guide.md` | 抢票压测指南 |
 | `docs/pressure-test-report-template.md` | 抢票压测报告模板 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-23-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/redis-lua-pressure-switch.md` | Redis Lua 压测开关说明 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-24-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 

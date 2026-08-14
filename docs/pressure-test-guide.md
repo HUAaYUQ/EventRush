@@ -116,6 +116,12 @@ mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086"
 docs/pressure-test-report-template.md
 ```
 
+如果要对比 Redis Lua 库存扣减方案，先看：
+
+```text
+docs/redis-lua-pressure-switch.md
+```
+
 ## 对比维度
 
 后续打开 Redis 库存方案后，重点对比：
