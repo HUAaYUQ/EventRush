@@ -264,8 +264,9 @@
 | `docs/pressure-test-guide.md` | 抢票压测指南 |
 | `docs/pressure-test-report-template.md` | 抢票压测报告模板 |
 | `docs/redis-lua-pressure-switch.md` | Redis Lua 压测开关说明 |
-| `docs/stage-overview.md` | 第 1 到第 24 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-30-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/product-output-blueprint.md` | 产品输出、身份划分、数据证据和面试展示蓝图 |
+| `docs/stage-overview.md` | 第 1 到第 31 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-31-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -285,14 +286,15 @@
 6. `docs/end-to-end-manual-acceptance.md`
 7. `docs/manual-acceptance-record-template.md`
 8. `docs/api-reference.md`
-9. `src/main/java/com/eventrush/service/TicketingService.java`
-10. `src/main/java/com/eventrush/service/AsyncGrabService.java`
-11. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
-12. `src/main/resources/lua/grab-ticket.lua`
-13. `src/main/java/com/eventrush/api/TraceFilter.java`
-14. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
+9. `docs/product-output-blueprint.md`
+10. `src/main/java/com/eventrush/service/TicketingService.java`
+11. `src/main/java/com/eventrush/service/AsyncGrabService.java`
+12. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
+13. `src/main/resources/lua/grab-ticket.lua`
+14. `src/main/java/com/eventrush/api/TraceFilter.java`
+15. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
 
-看完这 14 个文件，至少能把项目主线、库存、幂等、MQ、接口治理讲清楚。
+看完这 15 个文件，至少能把项目主线、库存、幂等、MQ、接口治理和产品输出讲清楚。
 
 ## 自测问题
 
@@ -308,3 +310,4 @@
 - `traceId` 出现在响应头、响应体和日志里分别有什么价值？
 - 管理端接口为什么必须鉴权？
 - README、API 文档、阶段验收文档各自解决什么问题？
+- EventRush 的前端为什么应该做成票务操作工作台，而不是营销首页？

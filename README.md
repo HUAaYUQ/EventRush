@@ -137,6 +137,12 @@ Redis Lua 压测开关说明：
 docs/redis-lua-pressure-switch.md
 ```
 
+产品输出蓝图：
+
+```text
+docs/product-output-blueprint.md
+```
+
 项目阶段总览：
 
 ```text
@@ -208,7 +214,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-30-acceptance.md
+docs/stage-31-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
