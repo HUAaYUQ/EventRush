@@ -24,6 +24,15 @@ const verifierId = ref(7001)
 const verifyLoading = ref(false)
 const verifyError = ref('')
 const verifyTraceId = ref('')
+const adminKey = ref('eventrush-admin-key')
+const adminLoading = ref('')
+const adminError = ref('')
+const adminOrdersTraceId = ref('')
+const adminTicketByOrderTraceId = ref('')
+const adminTicketByCodeTraceId = ref('')
+const adminOrders = ref([])
+const adminTicketByOrder = ref(null)
+const adminTicketByCode = ref(null)
 
 const summary = computed(() => {
   const sessions = events.value.flatMap((event) => event.sessions ?? [])
@@ -66,6 +75,7 @@ function selectTicket(sessionId, ticketCategoryId) {
   payError.value = ''
   ticketLookupError.value = ''
   verifyError.value = ''
+  adminError.value = ''
 }
 
 function selectFirstTicketIfNeeded() {
@@ -120,6 +130,10 @@ async function grabTicket() {
   ticketLookupTraceId.value = ''
   verifyError.value = ''
   verifyTraceId.value = ''
+  adminError.value = ''
+  adminOrders.value = []
+  adminTicketByOrder.value = null
+  adminTicketByCode.value = null
 
   try {
     const response = await fetch('/api/orders/grab', {
@@ -146,6 +160,96 @@ async function grabTicket() {
     grabError.value = caught instanceof Error ? caught.message : '抢票失败'
   } finally {
     grabLoading.value = false
+  }
+}
+
+function adminHeaders() {
+  return {
+    'X-Admin-Key': adminKey.value.trim(),
+  }
+}
+
+async function loadAdminOrders() {
+  adminLoading.value = 'orders'
+  adminError.value = ''
+  adminOrdersTraceId.value = ''
+
+  try {
+    const response = await fetch(`/api/admin/users/${Number(userId.value)}/orders`, {
+      headers: adminHeaders(),
+    })
+    const payload = await response.json()
+    adminOrdersTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '用户订单查询失败')
+    }
+
+    adminOrders.value = payload.data ?? []
+  } catch (caught) {
+    adminError.value = caught instanceof Error ? caught.message : '用户订单查询失败'
+  } finally {
+    adminLoading.value = ''
+  }
+}
+
+async function loadAdminTicketByOrder() {
+  if (!order.value) {
+    adminError.value = '请先完成抢票或支付，拿到 orderId'
+    return
+  }
+
+  adminLoading.value = 'orderTicket'
+  adminError.value = ''
+  adminTicketByOrderTraceId.value = ''
+
+  try {
+    const response = await fetch(`/api/admin/orders/${order.value.id}/ticket`, {
+      headers: adminHeaders(),
+    })
+    const payload = await response.json()
+    adminTicketByOrderTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '订单电子票查询失败')
+    }
+
+    adminTicketByOrder.value = payload.data
+  } catch (caught) {
+    adminError.value = caught instanceof Error ? caught.message : '订单电子票查询失败'
+  } finally {
+    adminLoading.value = ''
+  }
+}
+
+async function loadAdminTicketByCode() {
+  const code = ticketLookupCode.value.trim()
+
+  if (!code) {
+    adminError.value = '请先完成支付或输入 ticketCode'
+    return
+  }
+
+  adminLoading.value = 'codeTicket'
+  adminError.value = ''
+  adminTicketByCodeTraceId.value = ''
+
+  try {
+    const response = await fetch(`/api/admin/tickets/${encodeURIComponent(code)}`, {
+      headers: adminHeaders(),
+    })
+    const payload = await response.json()
+    adminTicketByCodeTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '票码查询失败')
+    }
+
+    adminTicketByCode.value = payload.data
+  } catch (caught) {
+    adminError.value = caught instanceof Error ? caught.message : '票码查询失败'
+  } finally {
+    adminLoading.value = ''
   }
 }
 
@@ -510,9 +614,96 @@ onMounted(loadEvents)
       </div>
     </section>
 
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">GET /api/admin/**</p>
+          <h2>管理端排查</h2>
+        </div>
+        <div class="trace-list">
+          <p v-if="adminOrdersTraceId" class="trace">用户订单 traceId: {{ adminOrdersTraceId }}</p>
+          <p v-if="adminTicketByOrderTraceId" class="trace">
+            订单查票 traceId: {{ adminTicketByOrderTraceId }}
+          </p>
+          <p v-if="adminTicketByCodeTraceId" class="trace">
+            票码查票 traceId: {{ adminTicketByCodeTraceId }}
+          </p>
+        </div>
+      </div>
+
+      <div class="admin-layout">
+        <label class="code-field">
+          <span>X-Admin-Key</span>
+          <input v-model.trim="adminKey" type="text" />
+        </label>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="adminLoading === 'orders'"
+          @click="loadAdminOrders"
+        >
+          {{ adminLoading === 'orders' ? '查询中' : '按用户查订单' }}
+        </button>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="adminLoading === 'orderTicket' || !order"
+          @click="loadAdminTicketByOrder"
+        >
+          {{ adminLoading === 'orderTicket' ? '查询中' : '按订单查票' }}
+        </button>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="adminLoading === 'codeTicket' || !ticketLookupCode"
+          @click="loadAdminTicketByCode"
+        >
+          {{ adminLoading === 'codeTicket' ? '查询中' : '按票码查票' }}
+        </button>
+      </div>
+
+      <p v-if="adminError" class="error">{{ adminError }}</p>
+      <div class="admin-results">
+        <div v-if="adminOrders.length" class="selected-box">
+          <p class="box-title">用户 {{ userId }} 的订单</p>
+          <div class="admin-list">
+            <div v-for="item in adminOrders" :key="item.id" class="admin-row">
+              <span>#{{ item.id }}</span>
+              <strong>{{ item.status }}</strong>
+              <span>票档 {{ item.ticketCategoryId }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="adminTicketByOrder" class="ticket-result">
+          <p class="box-title">订单对应电子票</p>
+          <div class="result-grid">
+            <span>ticketCode</span>
+            <strong>{{ adminTicketByOrder.ticketCode }}</strong>
+            <span>票状态</span>
+            <strong>{{ adminTicketByOrder.status }}</strong>
+            <span>orderId</span>
+            <strong>{{ adminTicketByOrder.orderId }}</strong>
+          </div>
+        </div>
+
+        <div v-if="adminTicketByCode" class="ticket-result verified-result">
+          <p class="box-title">票码查询结果</p>
+          <div class="result-grid">
+            <span>ticketCode</span>
+            <strong>{{ adminTicketByCode.ticketCode }}</strong>
+            <span>票状态</span>
+            <strong>{{ adminTicketByCode.status }}</strong>
+            <span>验票员</span>
+            <strong>{{ adminTicketByCode.verifierId ?? '未核验' }}</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续补后台排查入口，让用户链路和管理端查询能在同一个工作台里互相印证。</p>
+      <p>在这个基础上继续补压测结果记录区，把性能指标和业务正确性放在同一个展示链路里。</p>
     </section>
   </main>
 </template>

@@ -275,7 +275,20 @@ h2 {
   padding-top: 16px;
 }
 
+.admin-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) repeat(3, 140px);
+  gap: 12px;
+  align-items: end;
+  padding-top: 16px;
+}
+
 .verify-layout label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-layout label {
   display: grid;
   gap: 6px;
 }
@@ -286,7 +299,23 @@ h2 {
   font-weight: 700;
 }
 
+.admin-layout label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .verify-layout input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.admin-layout input {
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
@@ -389,6 +418,32 @@ h2 {
   background: #f5fff8;
 }
 
+.admin-results {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.admin-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-row {
+  display: grid;
+  grid-template-columns: 80px 120px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.admin-row span {
+  color: var(--muted);
+}
+
 .result-grid {
   display: grid;
   grid-template-columns: 100px 1fr;
@@ -420,7 +475,8 @@ h2 {
   .session-row,
   .grab-layout,
   .pay-layout,
-  .verify-layout {
+  .verify-layout,
+  .admin-layout {
     grid-template-columns: 1fr;
   }
 
@@ -454,6 +510,10 @@ h2 {
   }
 
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-row {
     grid-template-columns: 1fr;
   }
 }
