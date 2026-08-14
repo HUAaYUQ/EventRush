@@ -143,6 +143,12 @@ docs/redis-lua-pressure-switch.md
 docs/product-output-blueprint.md
 ```
 
+前端工作台需求设计：
+
+```text
+docs/ui-workbench-requirements.md
+```
+
 项目阶段总览：
 
 ```text
@@ -214,7 +220,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-31-acceptance.md
+docs/stage-32-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
