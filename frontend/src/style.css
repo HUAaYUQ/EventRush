@@ -1,0 +1,273 @@
+:root {
+  --bg: #f7f8f5;
+  --surface: #ffffff;
+  --surface-soft: #eef4ec;
+  --text: #1f2523;
+  --muted: #68726d;
+  --border: #d9ded7;
+  --green: #2f7d57;
+  --amber: #a46118;
+  --red: #b3403a;
+  --ink: #263238;
+  --shadow: 0 14px 36px rgba(31, 37, 35, 0.08);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-mark {
+  width: 48px;
+  height: 48px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.eyebrow {
+  margin-bottom: 4px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.reload-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--green);
+  cursor: pointer;
+}
+
+.reload-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.status-grid article,
+.panel,
+.next-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.status-grid article {
+  padding: 16px;
+}
+
+.status-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.status-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 28px;
+}
+
+.panel {
+  padding: 18px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.trace,
+.event-meta,
+.hint,
+.empty,
+.next-panel p {
+  color: var(--muted);
+}
+
+.trace {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.hint,
+.empty,
+.error {
+  padding: 18px 0 4px;
+}
+
+.error {
+  color: var(--red);
+}
+
+.event-list {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.event-name {
+  margin-bottom: 6px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.event-meta {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.session-list {
+  display: grid;
+  gap: 10px;
+}
+
+.session-row {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.session-title {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.ticket-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+}
+
+.ticket-chip {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid rgba(47, 125, 87, 0.24);
+  border-radius: 8px;
+  color: var(--green);
+  background: #f8fbf4;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.next-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border-left: 4px solid var(--amber);
+}
+
+.next-panel h2 {
+  margin-bottom: 6px;
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .panel-header,
+  .event-row,
+  .session-row {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar,
+  .panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    width: min(100% - 20px, 1180px);
+    padding-top: 18px;
+  }
+
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+}

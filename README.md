@@ -61,6 +61,34 @@ mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086"
 eventrush-admin-key
 ```
 
+## 前端工作台
+
+前端目录：
+
+```text
+frontend
+```
+
+启动后端后，再启动前端：
+
+```powershell
+cd frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+访问：
+
+```text
+http://localhost:5173
+```
+
+前端通过 Vite 代理把 `/api` 请求转发到：
+
+```text
+http://localhost:18086
+```
+
 ## 运行测试
 
 ```powershell
@@ -155,6 +183,12 @@ docs/ui-workbench-requirements.md
 docs/frontend-scaffold-plan.md
 ```
 
+前端脚手架创建验收：
+
+```text
+docs/stage-34-acceptance.md
+```
+
 项目阶段总览：
 
 ```text
@@ -226,7 +260,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-33-acceptance.md
+docs/stage-34-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
