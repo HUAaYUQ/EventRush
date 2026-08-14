@@ -195,6 +195,12 @@ docs/stage-34-acceptance.md
 docs/stage-35-acceptance.md
 ```
 
+支付出票链路验收：
+
+```text
+docs/stage-36-acceptance.md
+```
+
 项目阶段总览：
 
 ```text
@@ -266,7 +272,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-35-acceptance.md
+docs/stage-36-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

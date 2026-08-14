@@ -12,6 +12,10 @@ const grabLoading = ref(false)
 const grabError = ref('')
 const grabTraceId = ref('')
 const order = ref(null)
+const payLoading = ref(false)
+const payError = ref('')
+const payTraceId = ref('')
+const ticket = ref(null)
 
 const summary = computed(() => {
   const sessions = events.value.flatMap((event) => event.sessions ?? [])
@@ -51,6 +55,7 @@ function selectTicket(sessionId, ticketCategoryId) {
   selectedSessionId.value = sessionId
   selectedTicketCategoryId.value = ticketCategoryId
   grabError.value = ''
+  payError.value = ''
 }
 
 function selectFirstTicketIfNeeded() {
@@ -97,6 +102,9 @@ async function grabTicket() {
   grabError.value = ''
   grabTraceId.value = ''
   order.value = null
+  ticket.value = null
+  payError.value = ''
+  payTraceId.value = ''
 
   try {
     const response = await fetch('/api/orders/grab', {
@@ -126,6 +134,48 @@ async function grabTicket() {
   }
 }
 
+async function refreshOrder(orderId) {
+  const response = await fetch(`/api/orders/${orderId}`)
+  const payload = await response.json()
+
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message || '订单状态刷新失败')
+  }
+
+  order.value = payload.data
+}
+
+async function payOrder() {
+  if (!order.value) {
+    payError.value = '请先完成抢票'
+    return
+  }
+
+  payLoading.value = true
+  payError.value = ''
+  payTraceId.value = ''
+  ticket.value = null
+
+  try {
+    const response = await fetch(`/api/orders/${order.value.id}/pay`, {
+      method: 'POST',
+    })
+    const payload = await response.json()
+    payTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '支付失败')
+    }
+
+    ticket.value = payload.data
+    await refreshOrder(order.value.id)
+  } catch (caught) {
+    payError.value = caught instanceof Error ? caught.message : '支付失败'
+  } finally {
+    payLoading.value = false
+  }
+}
+
 onMounted(loadEvents)
 </script>
 
@@ -136,7 +186,7 @@ onMounted(loadEvents)
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
           <p class="eyebrow">EventRush 工作台</p>
-          <h1>用户抢票基础链路</h1>
+          <h1>用户抢票与支付出票</h1>
         </div>
       </div>
       <button type="button" class="reload-button" :disabled="loading" @click="loadEvents">
@@ -269,9 +319,52 @@ onMounted(loadEvents)
       </div>
     </section>
 
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">POST /api/orders/{orderId}/pay</p>
+          <h2>支付出票</h2>
+        </div>
+        <p v-if="payTraceId" class="trace">traceId: {{ payTraceId }}</p>
+      </div>
+
+      <div class="pay-layout">
+        <div class="selected-box">
+          <p class="box-title">当前订单</p>
+          <template v-if="order">
+            <p>订单 {{ order.id }}</p>
+            <p class="event-meta">状态 {{ order.status }} · 用户 {{ order.userId }}</p>
+          </template>
+          <p v-else class="event-meta">请先完成同步抢票。</p>
+        </div>
+
+        <button
+          type="button"
+          class="primary-action"
+          :disabled="payLoading || !order || order.status === 'CANCELED'"
+          @click="payOrder"
+        >
+          {{ payLoading ? '支付中' : '支付并出票' }}
+        </button>
+      </div>
+
+      <p v-if="payError" class="error">{{ payError }}</p>
+      <div v-if="ticket" class="ticket-result">
+        <p class="box-title">电子票</p>
+        <div class="result-grid">
+          <span>ticketCode</span>
+          <strong>{{ ticket.ticketCode }}</strong>
+          <span>票状态</span>
+          <strong>{{ ticket.status }}</strong>
+          <span>orderId</span>
+          <strong>{{ ticket.orderId }}</strong>
+        </div>
+      </div>
+    </section>
+
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续做支付出票，展示 ticketCode 和电子票状态。</p>
+      <p>在这个基础上继续做电子票查询与验票，验证 VALID 到 VERIFIED 的状态变化。</p>
     </section>
   </main>
 </template>

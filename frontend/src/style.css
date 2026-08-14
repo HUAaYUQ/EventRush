@@ -253,6 +253,14 @@ h2 {
   padding-top: 16px;
 }
 
+.pay-layout {
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 16px;
+  align-items: end;
+  padding-top: 16px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -302,7 +310,8 @@ h2 {
 }
 
 .selected-box,
-.order-result {
+.order-result,
+.ticket-result {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -316,9 +325,14 @@ h2 {
   font-weight: 700;
 }
 
-.order-result {
+.order-result,
+.ticket-result {
   margin-top: 14px;
   background: #fffaf2;
+}
+
+.ticket-result {
+  background: #f2f8ff;
 }
 
 .result-grid {
@@ -350,7 +364,8 @@ h2 {
   .panel-header,
   .event-row,
   .session-row,
-  .grab-layout {
+  .grab-layout,
+  .pay-layout {
     grid-template-columns: 1fr;
   }
 
