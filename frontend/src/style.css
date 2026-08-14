@@ -283,12 +283,24 @@ h2 {
   padding-top: 16px;
 }
 
+.pressure-layout {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 16px;
+}
+
 .verify-layout label {
   display: grid;
   gap: 6px;
 }
 
 .admin-layout label {
+  display: grid;
+  gap: 6px;
+}
+
+.pressure-layout label {
   display: grid;
   gap: 6px;
 }
@@ -305,7 +317,23 @@ h2 {
   font-weight: 700;
 }
 
+.pressure-layout label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .verify-layout input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.pressure-layout input {
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
@@ -444,6 +472,57 @@ h2 {
   color: var(--muted);
 }
 
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--green);
+  font-size: 13px;
+}
+
+.result-badge.danger {
+  background: var(--red);
+}
+
+.pressure-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.pressure-summary article {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fbf4;
+}
+
+.pressure-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pressure-summary strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 22px;
+}
+
+.pressure-conclusion {
+  margin-top: 14px;
+}
+
+.pressure-conclusion p:last-child {
+  color: var(--text);
+  line-height: 1.7;
+}
+
 .result-grid {
   display: grid;
   grid-template-columns: 100px 1fr;
@@ -476,8 +555,13 @@ h2 {
   .grab-layout,
   .pay-layout,
   .verify-layout,
-  .admin-layout {
+  .admin-layout,
+  .pressure-layout {
     grid-template-columns: 1fr;
+  }
+
+  .pressure-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .trace-list {
@@ -514,6 +598,10 @@ h2 {
   }
 
   .admin-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pressure-summary {
     grid-template-columns: 1fr;
   }
 }

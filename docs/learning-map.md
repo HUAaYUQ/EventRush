@@ -267,10 +267,10 @@
 | `docs/product-output-blueprint.md` | 产品输出、身份划分、数据证据和面试展示蓝图 |
 | `docs/ui-workbench-requirements.md` | 前端工作台页面、接口、状态和验收需求 |
 | `docs/frontend-scaffold-plan.md` | 前端技术选型、目录、端口、代理和环境准备 |
-| `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票、支付出票、查票、验票和管理端排查入口 |
+| `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票、支付出票、查票、验票、管理端排查入口和压测结果记录区 |
 | `frontend/vite.config.js` | 前端端口和 `/api` 代理配置 |
-| `docs/stage-overview.md` | 第 1 到第 38 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-38-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/stage-overview.md` | 第 1 到第 39 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-39-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -326,3 +326,4 @@
 - 支付成功后为什么要刷新订单状态并展示 `ticketCode`？
 - 验票为什么要从后端检查 `VALID` 状态，而不能只靠前端按钮控制？
 - 管理端为什么要通过 `X-Admin-Key` 查询用户订单和电子票？
+- 抢票压测为什么要先看是否超卖，再看 QPS、P95 和 P99？

@@ -33,6 +33,16 @@ const adminTicketByCodeTraceId = ref('')
 const adminOrders = ref([])
 const adminTicketByOrder = ref(null)
 const adminTicketByCode = ref(null)
+const pressureMode = ref('默认 H2/本地基线')
+const pressureUsers = ref(40)
+const pressureStock = ref(20)
+const pressureSuccess = ref(20)
+const pressureFailed = ref(20)
+const pressureQps = ref(0)
+const pressureAvgMs = ref(0)
+const pressureP95Ms = ref(0)
+const pressureP99Ms = ref(0)
+const pressureSystemErrors = ref(0)
 
 const summary = computed(() => {
   const sessions = events.value.flatMap((event) => event.sessions ?? [])
@@ -66,6 +76,23 @@ const selectedTicket = computed(() =>
       option.session.id === selectedSessionId.value &&
       option.category.id === selectedTicketCategoryId.value,
   ),
+)
+
+const pressureSuccessRate = computed(() => {
+  const total = Number(pressureSuccess.value) + Number(pressureFailed.value)
+  if (total === 0) {
+    return '0.00%'
+  }
+
+  return `${((Number(pressureSuccess.value) / total) * 100).toFixed(2)}%`
+})
+
+const pressureOversold = computed(
+  () => Number(pressureSuccess.value) > Number(pressureStock.value),
+)
+
+const pressurePassed = computed(
+  () => !pressureOversold.value && Number(pressureSystemErrors.value) === 0,
 )
 
 function selectTicket(sessionId, ticketCategoryId) {
@@ -378,7 +405,7 @@ onMounted(loadEvents)
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
           <p class="eyebrow">EventRush 工作台</p>
-          <h1>用户抢票、支付出票与验票</h1>
+          <h1>票务链路与压测证据工作台</h1>
         </div>
       </div>
       <button type="button" class="reload-button" :disabled="loading" @click="loadEvents">
@@ -701,9 +728,96 @@ onMounted(loadEvents)
       </div>
     </section>
 
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">pressure baseline</p>
+          <h2>压测结果记录</h2>
+        </div>
+        <strong class="result-badge" :class="{ danger: !pressurePassed }">
+          {{ pressurePassed ? '通过' : '需复查' }}
+        </strong>
+      </div>
+
+      <div class="pressure-layout">
+        <label>
+          <span>模式</span>
+          <input v-model.trim="pressureMode" type="text" />
+        </label>
+        <label>
+          <span>Users</span>
+          <input v-model.number="pressureUsers" type="number" min="0" />
+        </label>
+        <label>
+          <span>票档库存</span>
+          <input v-model.number="pressureStock" type="number" min="0" />
+        </label>
+        <label>
+          <span>成功数</span>
+          <input v-model.number="pressureSuccess" type="number" min="0" />
+        </label>
+        <label>
+          <span>失败数</span>
+          <input v-model.number="pressureFailed" type="number" min="0" />
+        </label>
+        <label>
+          <span>QPS</span>
+          <input v-model.number="pressureQps" type="number" min="0" step="0.01" />
+        </label>
+        <label>
+          <span>平均耗时 ms</span>
+          <input v-model.number="pressureAvgMs" type="number" min="0" step="0.01" />
+        </label>
+        <label>
+          <span>P95 ms</span>
+          <input v-model.number="pressureP95Ms" type="number" min="0" step="0.01" />
+        </label>
+        <label>
+          <span>P99 ms</span>
+          <input v-model.number="pressureP99Ms" type="number" min="0" step="0.01" />
+        </label>
+        <label>
+          <span>系统异常数</span>
+          <input v-model.number="pressureSystemErrors" type="number" min="0" />
+        </label>
+      </div>
+
+      <div class="pressure-summary">
+        <article>
+          <span>是否超卖</span>
+          <strong>{{ pressureOversold ? '是' : '否' }}</strong>
+        </article>
+        <article>
+          <span>成功率</span>
+          <strong>{{ pressureSuccessRate }}</strong>
+        </article>
+        <article>
+          <span>P95</span>
+          <strong>{{ pressureP95Ms }} ms</strong>
+        </article>
+        <article>
+          <span>P99</span>
+          <strong>{{ pressureP99Ms }} ms</strong>
+        </article>
+      </div>
+
+      <div class="selected-box pressure-conclusion">
+        <p class="box-title">结论</p>
+        <p>
+          {{ pressureMode }}：{{ pressureUsers }} 个用户并发下，成功 {{ pressureSuccess }}，
+          失败 {{ pressureFailed }}，QPS {{ pressureQps }}，系统异常
+          {{ pressureSystemErrors }}。{{
+            pressurePassed
+              ? '成功数没有超过库存，且没有系统异常，可以作为本地基线证据。'
+              : '存在超卖或系统异常，需要回看压测输出和后端日志。'
+          }}
+        </p>
+      </div>
+    </section>
+
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续补压测结果记录区，把性能指标和业务正确性放在同一个展示链路里。</p>
+      <p>在这个基础上继续做压测对比展示，把默认方案和 Redis Lua 方案放在同一组指标下比较。</p>
     </section>
   </main>
 </template>
