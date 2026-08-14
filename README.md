@@ -95,6 +95,12 @@ docs/interview-qa.md
 docs/review-qa-drill.md
 ```
 
+核心代码阅读路线：
+
+```text
+docs/core-code-reading-route.md
+```
+
 抢票压测指南：
 
 ```text
@@ -184,7 +190,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-26-acceptance.md
+docs/stage-27-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
