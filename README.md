@@ -237,6 +237,12 @@ docs/stage-40-acceptance.md
 docs/stage-41-acceptance.md
 ```
 
+最近请求记录验收：
+
+```text
+docs/stage-42-acceptance.md
+```
+
 项目阶段总览：
 
 ```text
@@ -308,7 +314,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-41-acceptance.md
+docs/stage-42-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

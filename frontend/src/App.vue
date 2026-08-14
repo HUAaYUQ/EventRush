@@ -30,6 +30,7 @@ const adminError = ref('')
 const adminOrdersTraceId = ref('')
 const adminTicketByOrderTraceId = ref('')
 const adminTicketByCodeTraceId = ref('')
+const requestRecords = ref([])
 const adminOrders = ref([])
 const adminTicketByOrder = ref(null)
 const adminTicketByCode = ref(null)
@@ -152,6 +153,61 @@ const pressureComparisonConclusion = computed(() => {
   return '两组方案都未超卖且无系统异常，但性能优势还不明显，需要结合更多轮压测判断。'
 })
 
+function addRequestRecord(record) {
+  requestRecords.value = [
+    {
+      id: `${Date.now()}-${Math.random()}`,
+      time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+      ...record,
+    },
+    ...requestRecords.value,
+  ].slice(0, 8)
+}
+
+async function requestJson(action, method, path, options = {}, summarize = () => '') {
+  let payload = null
+
+  try {
+    const response = await fetch(path, {
+      ...options,
+      method,
+    })
+    payload = await response.json()
+    const nextTraceId = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+    const success = response.ok && payload.success !== false
+
+    addRequestRecord({
+      action,
+      method,
+      path,
+      result: success ? '成功' : '失败',
+      code: payload.code ?? (success ? 'OK' : String(response.status)),
+      traceId: nextTraceId,
+      summary: success ? summarize(payload.data) : payload.message,
+    })
+
+    if (!success) {
+      throw new Error(payload.message || `${action}失败`)
+    }
+
+    return { payload, traceId: nextTraceId }
+  } catch (caught) {
+    if (!payload) {
+      addRequestRecord({
+        action,
+        method,
+        path,
+        result: '失败',
+        code: 'NETWORK_ERROR',
+        traceId: '',
+        summary: caught instanceof Error ? caught.message : `${action}失败`,
+      })
+    }
+
+    throw caught
+  }
+}
+
 function selectTicket(sessionId, ticketCategoryId) {
   selectedSessionId.value = sessionId
   selectedTicketCategoryId.value = ticketCategoryId
@@ -177,13 +233,14 @@ async function loadEvents() {
   error.value = ''
 
   try {
-    const response = await fetch('/api/events')
-    const payload = await response.json()
-    traceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '活动列表加载失败')
-    }
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '加载活动',
+      'GET',
+      '/api/events',
+      {},
+      (data) => `活动 ${data?.length ?? 0} 个`,
+    )
+    traceId.value = nextTraceId
 
     events.value = payload.data ?? []
     selectFirstTicketIfNeeded()
@@ -220,23 +277,23 @@ async function grabTicket() {
   adminTicketByCode.value = null
 
   try {
-    const response = await fetch('/api/orders/grab', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '同步抢票',
+      'POST',
+      '/api/orders/grab',
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: Number(userId.value),
+          sessionId: selectedSessionId.value,
+          ticketCategoryId: selectedTicketCategoryId.value,
+        }),
       },
-      body: JSON.stringify({
-        userId: Number(userId.value),
-        sessionId: selectedSessionId.value,
-        ticketCategoryId: selectedTicketCategoryId.value,
-      }),
-    })
-    const payload = await response.json()
-    grabTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '抢票失败')
-    }
+      (data) => `orderId=${data.id} ${data.status}`,
+    )
+    grabTraceId.value = nextTraceId
 
     order.value = payload.data
     await loadEvents()
@@ -259,15 +316,14 @@ async function loadAdminOrders() {
   adminOrdersTraceId.value = ''
 
   try {
-    const response = await fetch(`/api/admin/users/${Number(userId.value)}/orders`, {
-      headers: adminHeaders(),
-    })
-    const payload = await response.json()
-    adminOrdersTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '用户订单查询失败')
-    }
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '按用户查订单',
+      'GET',
+      `/api/admin/users/${Number(userId.value)}/orders`,
+      { headers: adminHeaders() },
+      (data) => `订单 ${data?.length ?? 0} 条`,
+    )
+    adminOrdersTraceId.value = nextTraceId
 
     adminOrders.value = payload.data ?? []
   } catch (caught) {
@@ -288,15 +344,14 @@ async function loadAdminTicketByOrder() {
   adminTicketByOrderTraceId.value = ''
 
   try {
-    const response = await fetch(`/api/admin/orders/${order.value.id}/ticket`, {
-      headers: adminHeaders(),
-    })
-    const payload = await response.json()
-    adminTicketByOrderTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '订单电子票查询失败')
-    }
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '按订单查票',
+      'GET',
+      `/api/admin/orders/${order.value.id}/ticket`,
+      { headers: adminHeaders() },
+      (data) => `ticketCode=${data.ticketCode}`,
+    )
+    adminTicketByOrderTraceId.value = nextTraceId
 
     adminTicketByOrder.value = payload.data
   } catch (caught) {
@@ -319,15 +374,14 @@ async function loadAdminTicketByCode() {
   adminTicketByCodeTraceId.value = ''
 
   try {
-    const response = await fetch(`/api/admin/tickets/${encodeURIComponent(code)}`, {
-      headers: adminHeaders(),
-    })
-    const payload = await response.json()
-    adminTicketByCodeTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '票码查询失败')
-    }
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '按票码查票',
+      'GET',
+      `/api/admin/tickets/${encodeURIComponent(code)}`,
+      { headers: adminHeaders() },
+      (data) => `${data.ticketCode} ${data.status}`,
+    )
+    adminTicketByCodeTraceId.value = nextTraceId
 
     adminTicketByCode.value = payload.data
   } catch (caught) {
@@ -338,12 +392,13 @@ async function loadAdminTicketByCode() {
 }
 
 async function refreshOrder(orderId) {
-  const response = await fetch(`/api/orders/${orderId}`)
-  const payload = await response.json()
-
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message || '订单状态刷新失败')
-  }
+  const { payload } = await requestJson(
+    '刷新订单',
+    'GET',
+    `/api/orders/${orderId}`,
+    {},
+    (data) => `orderId=${data.id} ${data.status}`,
+  )
 
   order.value = payload.data
 }
@@ -362,15 +417,14 @@ async function payOrder() {
   verifyError.value = ''
 
   try {
-    const response = await fetch(`/api/orders/${order.value.id}/pay`, {
-      method: 'POST',
-    })
-    const payload = await response.json()
-    payTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '支付失败')
-    }
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '支付出票',
+      'POST',
+      `/api/orders/${order.value.id}/pay`,
+      {},
+      (data) => `ticketCode=${data.ticketCode}`,
+    )
+    payTraceId.value = nextTraceId
 
     ticket.value = payload.data
     ticketLookupCode.value = ticket.value.ticketCode
@@ -396,13 +450,14 @@ async function lookupTicket() {
   verifyError.value = ''
 
   try {
-    const response = await fetch(`/api/tickets/${encodeURIComponent(code)}`)
-    const payload = await response.json()
-    ticketLookupTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '电子票查询失败')
-    }
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '查询电子票',
+      'GET',
+      `/api/tickets/${encodeURIComponent(code)}`,
+      {},
+      (data) => `${data.ticketCode} ${data.status}`,
+    )
+    ticketLookupTraceId.value = nextTraceId
 
     ticket.value = payload.data
     ticketLookupCode.value = ticket.value.ticketCode
@@ -426,22 +481,22 @@ async function verifyTicket() {
   verifyTraceId.value = ''
 
   try {
-    const response = await fetch('/api/tickets/verify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '验票入场',
+      'POST',
+      '/api/tickets/verify',
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticketCode: code,
+          verifierId: Number(verifierId.value),
+        }),
       },
-      body: JSON.stringify({
-        ticketCode: code,
-        verifierId: Number(verifierId.value),
-      }),
-    })
-    const payload = await response.json()
-    verifyTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
-
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.message || '验票失败')
-    }
+      (data) => `${data.ticketCode} ${data.status}`,
+    )
+    verifyTraceId.value = nextTraceId
 
     ticket.value = payload.data
     ticketLookupCode.value = ticket.value.ticketCode
@@ -788,6 +843,39 @@ onMounted(loadEvents)
     <section class="panel action-panel">
       <div class="panel-header">
         <div>
+          <p class="eyebrow">recent requests</p>
+          <h2>最近请求记录</h2>
+        </div>
+      </div>
+
+      <div v-if="requestRecords.length === 0" class="empty">暂无请求记录。</div>
+      <div v-else class="request-list">
+        <div class="request-head">
+          <span>时间</span>
+          <span>动作</span>
+          <span>接口</span>
+          <span>结果</span>
+          <span>code</span>
+          <span>traceId</span>
+          <span>摘要</span>
+        </div>
+        <div v-for="record in requestRecords" :key="record.id" class="request-row">
+          <span>{{ record.time }}</span>
+          <strong>{{ record.action }}</strong>
+          <span>{{ record.method }} {{ record.path }}</span>
+          <span :class="['request-result', { failed: record.result !== '成功' }]">
+            {{ record.result }}
+          </span>
+          <span>{{ record.code }}</span>
+          <span class="trace-cell">{{ record.traceId || '-' }}</span>
+          <span>{{ record.summary || '-' }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
           <p class="eyebrow">pressure baseline</p>
           <h2>压测结果记录</h2>
         </div>
@@ -928,7 +1016,7 @@ onMounted(loadEvents)
 
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续整理前端成果接收清单，把业务链路、管理排查和压测证据串成一套演示脚本。</p>
+      <p>在这个基础上继续梳理 UI 结构和交互细节，让工作台从可用走向更适合演示和长期维护。</p>
     </section>
   </main>
 </template>

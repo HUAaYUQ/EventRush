@@ -472,6 +472,55 @@ h2 {
   color: var(--muted);
 }
 
+.request-list {
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+  overflow-x: auto;
+}
+
+.request-head,
+.request-row {
+  display: grid;
+  grid-template-columns: 86px 110px minmax(220px, 1.3fr) 70px 100px minmax(220px, 1.2fr) minmax(160px, 1fr);
+  gap: 8px;
+  min-width: 1040px;
+  align-items: center;
+}
+
+.request-head {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.request-row {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  font-size: 13px;
+}
+
+.request-row span,
+.request-row strong {
+  word-break: break-word;
+}
+
+.request-result {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.request-result.failed {
+  color: var(--red);
+}
+
+.trace-cell {
+  font-family: "Cascadia Code", Consolas, monospace;
+  color: var(--muted);
+}
+
 .result-badge {
   display: inline-flex;
   align-items: center;

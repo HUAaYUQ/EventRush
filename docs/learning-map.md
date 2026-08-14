@@ -268,10 +268,11 @@
 | `docs/ui-workbench-requirements.md` | 前端工作台页面、接口、状态和验收需求 |
 | `docs/frontend-scaffold-plan.md` | 前端技术选型、目录、端口、代理和环境准备 |
 | `docs/frontend-acceptance-demo-script.md` | 前端成果接收清单和页面演示脚本 |
-| `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票、支付出票、查票、验票、管理端排查、压测记录和压测对比 |
+| `docs/stage-42-acceptance.md` | 最近请求记录验收，确认成功和失败请求都有轨迹 |
+| `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票、支付出票、查票、验票、管理端排查、最近请求记录、压测记录和压测对比 |
 | `frontend/vite.config.js` | 前端端口和 `/api` 代理配置 |
-| `docs/stage-overview.md` | 第 1 到第 41 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-41-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/stage-overview.md` | 第 1 到第 42 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-42-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -331,3 +332,4 @@
 - 抢票压测为什么要先看是否超卖，再看 QPS、P95 和 P99？
 - 默认方案和 Redis Lua 方案为什么必须用同一组压测参数对比？
 - 你接收前端成果时，为什么要记录 `orderId`、`ticketCode`、状态和 traceId？
+- 最近请求记录为什么要同时记录成功请求、失败请求、业务 code 和 `traceId`？
