@@ -110,6 +110,12 @@ mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=18086"
 | 2026-08-13 | 默认 H2/本地基线 | 40 | 1002 |  |  |  |  |  |  |  |
 | 2026-08-13 | Redis Lua 库存 | 40 | 1002 |  |  |  |  |  |  |  |
 
+更完整的报告模板见：
+
+```text
+docs/pressure-test-report-template.md
+```
+
 ## 对比维度
 
 后续打开 Redis 库存方案后，重点对比：
