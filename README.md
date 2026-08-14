@@ -89,6 +89,12 @@ docs/learning-map.md
 docs/interview-qa.md
 ```
 
+项目复盘问答训练：
+
+```text
+docs/review-qa-drill.md
+```
+
 抢票压测指南：
 
 ```text
@@ -178,7 +184,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-25-acceptance.md
+docs/stage-26-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
