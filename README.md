@@ -149,6 +149,12 @@ docs/product-output-blueprint.md
 docs/ui-workbench-requirements.md
 ```
 
+前端技术选型与脚手架准备：
+
+```text
+docs/frontend-scaffold-plan.md
+```
+
 项目阶段总览：
 
 ```text
@@ -220,7 +226,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-32-acceptance.md
+docs/stage-33-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

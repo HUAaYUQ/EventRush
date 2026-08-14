@@ -266,8 +266,9 @@
 | `docs/redis-lua-pressure-switch.md` | Redis Lua 压测开关说明 |
 | `docs/product-output-blueprint.md` | 产品输出、身份划分、数据证据和面试展示蓝图 |
 | `docs/ui-workbench-requirements.md` | 前端工作台页面、接口、状态和验收需求 |
-| `docs/stage-overview.md` | 第 1 到第 31 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-32-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/frontend-scaffold-plan.md` | 前端技术选型、目录、端口、代理和环境准备 |
+| `docs/stage-overview.md` | 第 1 到第 33 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-33-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -289,14 +290,15 @@
 8. `docs/api-reference.md`
 9. `docs/product-output-blueprint.md`
 10. `docs/ui-workbench-requirements.md`
-11. `src/main/java/com/eventrush/service/TicketingService.java`
-12. `src/main/java/com/eventrush/service/AsyncGrabService.java`
-13. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
-14. `src/main/resources/lua/grab-ticket.lua`
-15. `src/main/java/com/eventrush/api/TraceFilter.java`
-16. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
+11. `docs/frontend-scaffold-plan.md`
+12. `src/main/java/com/eventrush/service/TicketingService.java`
+13. `src/main/java/com/eventrush/service/AsyncGrabService.java`
+14. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
+15. `src/main/resources/lua/grab-ticket.lua`
+16. `src/main/java/com/eventrush/api/TraceFilter.java`
+17. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
 
-看完这 16 个文件，至少能把项目主线、库存、幂等、MQ、接口治理、产品输出和前端展示需求讲清楚。
+看完这 17 个文件，至少能把项目主线、库存、幂等、MQ、接口治理、产品输出、前端展示需求和前端启动边界讲清楚。
 
 ## 自测问题
 
@@ -314,3 +316,4 @@
 - README、API 文档、阶段验收文档各自解决什么问题？
 - EventRush 的前端为什么应该做成票务操作工作台，而不是营销首页？
 - 第一版前端为什么先做压测结果记录，而不是直接做自动监控大屏？
+- PowerShell 里 `npm` 被拦截时，为什么可以使用 `npm.cmd`？
