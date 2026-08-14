@@ -43,6 +43,30 @@ const pressureAvgMs = ref(0)
 const pressureP95Ms = ref(0)
 const pressureP99Ms = ref(0)
 const pressureSystemErrors = ref(0)
+const pressureComparisons = ref([
+  {
+    mode: '默认 H2/本地基线',
+    users: 40,
+    stock: 20,
+    success: 20,
+    failed: 20,
+    qps: 0,
+    p95Ms: 0,
+    p99Ms: 0,
+    systemErrors: 0,
+  },
+  {
+    mode: 'Redis Lua 库存',
+    users: 40,
+    stock: 20,
+    success: 20,
+    failed: 20,
+    qps: 0,
+    p95Ms: 0,
+    p99Ms: 0,
+    systemErrors: 0,
+  },
+])
 
 const summary = computed(() => {
   const sessions = events.value.flatMap((event) => event.sessions ?? [])
@@ -94,6 +118,39 @@ const pressureOversold = computed(
 const pressurePassed = computed(
   () => !pressureOversold.value && Number(pressureSystemErrors.value) === 0,
 )
+
+const pressureComparisonRows = computed(() =>
+  pressureComparisons.value.map((item) => {
+    const oversold = Number(item.success) > Number(item.stock)
+    const passed = !oversold && Number(item.systemErrors) === 0
+
+    return {
+      ...item,
+      oversold,
+      passed,
+    }
+  }),
+)
+
+const pressureComparisonConclusion = computed(() => {
+  const rows = pressureComparisonRows.value
+  const failedRow = rows.find((row) => !row.passed)
+
+  if (failedRow) {
+    return `${failedRow.mode} 存在超卖或系统异常，本轮对比不能作为有效优化结论。`
+  }
+
+  const [baseline, redisLua] = rows
+  if (!baseline || !redisLua) {
+    return '请补齐两组压测数据后再判断。'
+  }
+
+  if (Number(redisLua.qps) > Number(baseline.qps) && Number(redisLua.p95Ms) <= Number(baseline.p95Ms)) {
+    return 'Redis Lua 方案在当前记录中 QPS 更高且 P95 没有变差，可以作为优化候选证据。'
+  }
+
+  return '两组方案都未超卖且无系统异常，但性能优势还不明显，需要结合更多轮压测判断。'
+})
 
 function selectTicket(sessionId, ticketCategoryId) {
   selectedSessionId.value = sessionId
@@ -815,9 +872,63 @@ onMounted(loadEvents)
       </div>
     </section>
 
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">baseline vs redis lua</p>
+          <h2>压测对比展示</h2>
+        </div>
+      </div>
+
+      <div class="comparison-table">
+        <div class="comparison-head">
+          <span>模式</span>
+          <span>Users</span>
+          <span>库存</span>
+          <span>success</span>
+          <span>failed</span>
+          <span>QPS</span>
+          <span>P95</span>
+          <span>P99</span>
+          <span>异常</span>
+          <span>结论</span>
+        </div>
+        <div v-for="(row, index) in pressureComparisons" :key="row.mode" class="comparison-row">
+          <input v-model.trim="row.mode" type="text" :aria-label="`模式 ${index + 1}`" />
+          <input v-model.number="row.users" type="number" min="0" aria-label="Users" />
+          <input v-model.number="row.stock" type="number" min="0" aria-label="库存" />
+          <input v-model.number="row.success" type="number" min="0" aria-label="success" />
+          <input v-model.number="row.failed" type="number" min="0" aria-label="failed" />
+          <input v-model.number="row.qps" type="number" min="0" step="0.01" aria-label="QPS" />
+          <input v-model.number="row.p95Ms" type="number" min="0" step="0.01" aria-label="P95" />
+          <input v-model.number="row.p99Ms" type="number" min="0" step="0.01" aria-label="P99" />
+          <input v-model.number="row.systemErrors" type="number" min="0" aria-label="异常" />
+          <strong
+            class="mini-badge"
+            :class="{ danger: !pressureComparisonRows[index].passed }"
+          >
+            {{ pressureComparisonRows[index].passed ? '通过' : '需复查' }}
+          </strong>
+        </div>
+      </div>
+
+      <div class="comparison-summary">
+        <article v-for="row in pressureComparisonRows" :key="`${row.mode}-summary`">
+          <span>{{ row.mode }}</span>
+          <strong>{{ row.oversold ? '超卖' : '未超卖' }}</strong>
+          <p>QPS {{ row.qps }} · P95 {{ row.p95Ms }} ms · P99 {{ row.p99Ms }} ms</p>
+        </article>
+      </div>
+
+      <div class="selected-box pressure-conclusion">
+        <p class="box-title">对比结论</p>
+        <p>{{ pressureComparisonConclusion }}</p>
+      </div>
+    </section>
+
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续做压测对比展示，把默认方案和 Redis Lua 方案放在同一组指标下比较。</p>
+      <p>在这个基础上继续整理前端成果接收清单，把业务链路、管理排查和压测证据串成一套演示脚本。</p>
     </section>
   </main>
 </template>
