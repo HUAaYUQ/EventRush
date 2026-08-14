@@ -267,10 +267,10 @@
 | `docs/product-output-blueprint.md` | 产品输出、身份划分、数据证据和面试展示蓝图 |
 | `docs/ui-workbench-requirements.md` | 前端工作台页面、接口、状态和验收需求 |
 | `docs/frontend-scaffold-plan.md` | 前端技术选型、目录、端口、代理和环境准备 |
-| `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票和支付出票链路 |
+| `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票、支付出票、查票和验票链路 |
 | `frontend/vite.config.js` | 前端端口和 `/api` 代理配置 |
-| `docs/stage-overview.md` | 第 1 到第 36 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-36-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/stage-overview.md` | 第 1 到第 37 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-37-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -324,3 +324,4 @@
 - 前端为什么要先跑通 `GET /api/events`，再做抢票和支付？
 - 抢票成功后为什么只是 `PENDING_PAYMENT`，还不能算已经出票？
 - 支付成功后为什么要刷新订单状态并展示 `ticketCode`？
+- 验票为什么要从后端检查 `VALID` 状态，而不能只靠前端按钮控制？

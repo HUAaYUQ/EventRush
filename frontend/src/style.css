@@ -162,6 +162,12 @@ h2 {
   word-break: break-all;
 }
 
+.trace-list {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+}
+
 .hint,
 .empty,
 .error {
@@ -261,6 +267,35 @@ h2 {
   padding-top: 16px;
 }
 
+.verify-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 140px 140px 140px;
+  gap: 12px;
+  align-items: end;
+  padding-top: 16px;
+}
+
+.verify-layout label {
+  display: grid;
+  gap: 6px;
+}
+
+.verify-layout label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.verify-layout input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -304,7 +339,22 @@ h2 {
   cursor: pointer;
 }
 
+.secondary-action {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  color: var(--green);
+  background: var(--surface);
+  cursor: pointer;
+}
+
 .primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.secondary-action:disabled {
   cursor: not-allowed;
   opacity: 0.7;
 }
@@ -333,6 +383,10 @@ h2 {
 
 .ticket-result {
   background: #f2f8ff;
+}
+
+.verified-result {
+  background: #f5fff8;
 }
 
 .result-grid {
@@ -365,8 +419,13 @@ h2 {
   .event-row,
   .session-row,
   .grab-layout,
-  .pay-layout {
+  .pay-layout,
+  .verify-layout {
     grid-template-columns: 1fr;
+  }
+
+  .trace-list {
+    text-align: left;
   }
 
   .form-grid {

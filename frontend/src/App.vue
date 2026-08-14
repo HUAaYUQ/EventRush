@@ -16,6 +16,14 @@ const payLoading = ref(false)
 const payError = ref('')
 const payTraceId = ref('')
 const ticket = ref(null)
+const ticketLookupCode = ref('')
+const ticketLookupLoading = ref(false)
+const ticketLookupError = ref('')
+const ticketLookupTraceId = ref('')
+const verifierId = ref(7001)
+const verifyLoading = ref(false)
+const verifyError = ref('')
+const verifyTraceId = ref('')
 
 const summary = computed(() => {
   const sessions = events.value.flatMap((event) => event.sessions ?? [])
@@ -56,6 +64,8 @@ function selectTicket(sessionId, ticketCategoryId) {
   selectedTicketCategoryId.value = ticketCategoryId
   grabError.value = ''
   payError.value = ''
+  ticketLookupError.value = ''
+  verifyError.value = ''
 }
 
 function selectFirstTicketIfNeeded() {
@@ -103,8 +113,13 @@ async function grabTicket() {
   grabTraceId.value = ''
   order.value = null
   ticket.value = null
+  ticketLookupCode.value = ''
   payError.value = ''
   payTraceId.value = ''
+  ticketLookupError.value = ''
+  ticketLookupTraceId.value = ''
+  verifyError.value = ''
+  verifyTraceId.value = ''
 
   try {
     const response = await fetch('/api/orders/grab', {
@@ -155,6 +170,8 @@ async function payOrder() {
   payError.value = ''
   payTraceId.value = ''
   ticket.value = null
+  ticketLookupError.value = ''
+  verifyError.value = ''
 
   try {
     const response = await fetch(`/api/orders/${order.value.id}/pay`, {
@@ -168,11 +185,82 @@ async function payOrder() {
     }
 
     ticket.value = payload.data
+    ticketLookupCode.value = ticket.value.ticketCode
     await refreshOrder(order.value.id)
   } catch (caught) {
     payError.value = caught instanceof Error ? caught.message : '支付失败'
   } finally {
     payLoading.value = false
+  }
+}
+
+async function lookupTicket() {
+  const code = ticketLookupCode.value.trim()
+
+  if (!code) {
+    ticketLookupError.value = '请先输入 ticketCode'
+    return
+  }
+
+  ticketLookupLoading.value = true
+  ticketLookupError.value = ''
+  ticketLookupTraceId.value = ''
+  verifyError.value = ''
+
+  try {
+    const response = await fetch(`/api/tickets/${encodeURIComponent(code)}`)
+    const payload = await response.json()
+    ticketLookupTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '电子票查询失败')
+    }
+
+    ticket.value = payload.data
+    ticketLookupCode.value = ticket.value.ticketCode
+  } catch (caught) {
+    ticketLookupError.value = caught instanceof Error ? caught.message : '电子票查询失败'
+  } finally {
+    ticketLookupLoading.value = false
+  }
+}
+
+async function verifyTicket() {
+  const code = ticketLookupCode.value.trim()
+
+  if (!code) {
+    verifyError.value = '请先输入 ticketCode'
+    return
+  }
+
+  verifyLoading.value = true
+  verifyError.value = ''
+  verifyTraceId.value = ''
+
+  try {
+    const response = await fetch('/api/tickets/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ticketCode: code,
+        verifierId: Number(verifierId.value),
+      }),
+    })
+    const payload = await response.json()
+    verifyTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '验票失败')
+    }
+
+    ticket.value = payload.data
+    ticketLookupCode.value = ticket.value.ticketCode
+  } catch (caught) {
+    verifyError.value = caught instanceof Error ? caught.message : '验票失败'
+  } finally {
+    verifyLoading.value = false
   }
 }
 
@@ -186,7 +274,7 @@ onMounted(loadEvents)
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
           <p class="eyebrow">EventRush 工作台</p>
-          <h1>用户抢票与支付出票</h1>
+          <h1>用户抢票、支付出票与验票</h1>
         </div>
       </div>
       <button type="button" class="reload-button" :disabled="loading" @click="loadEvents">
@@ -362,9 +450,69 @@ onMounted(loadEvents)
       </div>
     </section>
 
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">GET /api/tickets/{ticketCode} · POST /api/tickets/verify</p>
+          <h2>电子票查询与验票</h2>
+        </div>
+        <div class="trace-list">
+          <p v-if="ticketLookupTraceId" class="trace">查票 traceId: {{ ticketLookupTraceId }}</p>
+          <p v-if="verifyTraceId" class="trace">验票 traceId: {{ verifyTraceId }}</p>
+        </div>
+      </div>
+
+      <div class="verify-layout">
+        <label class="code-field">
+          <span>ticketCode</span>
+          <input
+            v-model.trim="ticketLookupCode"
+            type="text"
+            placeholder="支付后会自动带出票码，也可以手动粘贴"
+          />
+        </label>
+        <label>
+          <span>验票员 ID</span>
+          <input v-model.number="verifierId" type="number" min="1" />
+        </label>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="ticketLookupLoading || !ticketLookupCode"
+          @click="lookupTicket"
+        >
+          {{ ticketLookupLoading ? '查询中' : '查询电子票' }}
+        </button>
+        <button
+          type="button"
+          class="primary-action"
+          :disabled="verifyLoading || !ticketLookupCode"
+          @click="verifyTicket"
+        >
+          {{ verifyLoading ? '验票中' : '验票入场' }}
+        </button>
+      </div>
+
+      <p v-if="ticketLookupError" class="error">{{ ticketLookupError }}</p>
+      <p v-if="verifyError" class="error">{{ verifyError }}</p>
+      <div v-if="ticket" class="ticket-result verified-result">
+        <p class="box-title">当前电子票</p>
+        <div class="result-grid">
+          <span>ticketCode</span>
+          <strong>{{ ticket.ticketCode }}</strong>
+          <span>票状态</span>
+          <strong>{{ ticket.status }}</strong>
+          <span>orderId</span>
+          <strong>{{ ticket.orderId }}</strong>
+          <span>验票员</span>
+          <strong>{{ ticket.verifierId ?? '未核验' }}</strong>
+        </div>
+      </div>
+    </section>
+
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续做电子票查询与验票，验证 VALID 到 VERIFIED 的状态变化。</p>
+      <p>在这个基础上继续补后台排查入口，让用户链路和管理端查询能在同一个工作台里互相印证。</p>
     </section>
   </main>
 </template>
