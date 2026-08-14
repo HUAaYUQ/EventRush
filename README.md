@@ -113,6 +113,12 @@ docs/core-code-lecture-notes.md
 docs/end-to-end-manual-acceptance.md
 ```
 
+手动验收结果记录模板：
+
+```text
+docs/manual-acceptance-record-template.md
+```
+
 抢票压测指南：
 
 ```text
@@ -202,7 +208,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-29-acceptance.md
+docs/stage-30-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
