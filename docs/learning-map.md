@@ -267,10 +267,11 @@
 | `docs/product-output-blueprint.md` | 产品输出、身份划分、数据证据和面试展示蓝图 |
 | `docs/ui-workbench-requirements.md` | 前端工作台页面、接口、状态和验收需求 |
 | `docs/frontend-scaffold-plan.md` | 前端技术选型、目录、端口、代理和环境准备 |
+| `docs/frontend-acceptance-demo-script.md` | 前端成果接收清单和页面演示脚本 |
 | `frontend/src/App.vue` | 前端工作台、活动联通、同步抢票、支付出票、查票、验票、管理端排查、压测记录和压测对比 |
 | `frontend/vite.config.js` | 前端端口和 `/api` 代理配置 |
-| `docs/stage-overview.md` | 第 1 到第 40 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-40-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/stage-overview.md` | 第 1 到第 41 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-41-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -293,16 +294,17 @@
 9. `docs/product-output-blueprint.md`
 10. `docs/ui-workbench-requirements.md`
 11. `docs/frontend-scaffold-plan.md`
-12. `frontend/src/App.vue`
-13. `frontend/vite.config.js`
-14. `src/main/java/com/eventrush/service/TicketingService.java`
-15. `src/main/java/com/eventrush/service/AsyncGrabService.java`
-16. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
-17. `src/main/resources/lua/grab-ticket.lua`
-18. `src/main/java/com/eventrush/api/TraceFilter.java`
-19. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
+12. `docs/frontend-acceptance-demo-script.md`
+13. `frontend/src/App.vue`
+14. `frontend/vite.config.js`
+15. `src/main/java/com/eventrush/service/TicketingService.java`
+16. `src/main/java/com/eventrush/service/AsyncGrabService.java`
+17. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
+18. `src/main/resources/lua/grab-ticket.lua`
+19. `src/main/java/com/eventrush/api/TraceFilter.java`
+20. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
 
-看完这 19 个文件，至少能把项目主线、库存、幂等、MQ、接口治理、产品输出、前端展示需求、前端启动边界、前后端联通、同步抢票和支付出票链路讲清楚。
+看完这 20 个文件，至少能把项目主线、库存、幂等、MQ、接口治理、产品输出、前端展示需求、前端启动边界、前后端联通、同步抢票和支付出票链路讲清楚。
 
 ## 自测问题
 
@@ -328,3 +330,4 @@
 - 管理端为什么要通过 `X-Admin-Key` 查询用户订单和电子票？
 - 抢票压测为什么要先看是否超卖，再看 QPS、P95 和 P99？
 - 默认方案和 Redis Lua 方案为什么必须用同一组压测参数对比？
+- 你接收前端成果时，为什么要记录 `orderId`、`ticketCode`、状态和 traceId？

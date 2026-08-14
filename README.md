@@ -183,6 +183,12 @@ docs/ui-workbench-requirements.md
 docs/frontend-scaffold-plan.md
 ```
 
+前端成果接收清单：
+
+```text
+docs/frontend-acceptance-demo-script.md
+```
+
 前端脚手架创建验收：
 
 ```text
@@ -223,6 +229,12 @@ docs/stage-39-acceptance.md
 
 ```text
 docs/stage-40-acceptance.md
+```
+
+前端成果接收清单验收：
+
+```text
+docs/stage-41-acceptance.md
 ```
 
 项目阶段总览：
@@ -296,7 +308,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-40-acceptance.md
+docs/stage-41-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
