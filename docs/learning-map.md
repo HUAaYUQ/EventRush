@@ -259,11 +259,12 @@
 | `docs/review-qa-drill.md` | 项目复盘短问短答训练 |
 | `docs/core-code-reading-route.md` | 核心代码阅读顺序和关键方法 |
 | `docs/core-code-lecture-notes.md` | 核心方法逐步讲解和边界说明 |
+| `docs/end-to-end-manual-acceptance.md` | 完整业务链路实操验收步骤 |
 | `docs/pressure-test-guide.md` | 抢票压测指南 |
 | `docs/pressure-test-report-template.md` | 抢票压测报告模板 |
 | `docs/redis-lua-pressure-switch.md` | Redis Lua 压测开关说明 |
 | `docs/stage-overview.md` | 第 1 到第 24 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-28-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-29-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -273,22 +274,23 @@
 
 ## 最小复习清单
 
-如果时间很紧，优先看这 12 个文件：
+如果时间很紧，优先看这 13 个文件：
 
 1. `README.md`
 2. `docs/stage-overview.md`
 3. `docs/review-qa-drill.md`
 4. `docs/core-code-reading-route.md`
 5. `docs/core-code-lecture-notes.md`
-6. `docs/api-reference.md`
-7. `src/main/java/com/eventrush/service/TicketingService.java`
-8. `src/main/java/com/eventrush/service/AsyncGrabService.java`
-9. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
-10. `src/main/resources/lua/grab-ticket.lua`
-11. `src/main/java/com/eventrush/api/TraceFilter.java`
-12. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
+6. `docs/end-to-end-manual-acceptance.md`
+7. `docs/api-reference.md`
+8. `src/main/java/com/eventrush/service/TicketingService.java`
+9. `src/main/java/com/eventrush/service/AsyncGrabService.java`
+10. `src/main/java/com/eventrush/service/TicketOrderRepository.java`
+11. `src/main/resources/lua/grab-ticket.lua`
+12. `src/main/java/com/eventrush/api/TraceFilter.java`
+13. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
 
-看完这 12 个文件，至少能把项目主线、库存、幂等、MQ、接口治理讲清楚。
+看完这 13 个文件，至少能把项目主线、库存、幂等、MQ、接口治理讲清楚。
 
 ## 自测问题
 
