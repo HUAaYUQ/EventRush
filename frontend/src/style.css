@@ -31,6 +31,10 @@ button {
   font: inherit;
 }
 
+input {
+  font: inherit;
+}
+
 h1,
 h2,
 p {
@@ -230,6 +234,105 @@ h2 {
   background: #f8fbf4;
   font-size: 13px;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.ticket-chip.selected {
+  color: #ffffff;
+  background: var(--green);
+}
+
+.action-panel {
+  margin-top: 18px;
+}
+
+.grab-layout {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.form-grid label span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-grid input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.form-grid input[readonly] {
+  color: var(--muted);
+  background: #f4f6f2;
+}
+
+.primary-action {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--green);
+  cursor: pointer;
+}
+
+.primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.selected-box,
+.order-result {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.box-title {
+  margin-bottom: 8px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.order-result {
+  margin-top: 14px;
+  background: #fffaf2;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px 12px;
+}
+
+.result-grid span {
+  color: var(--muted);
+}
+
+.result-grid strong {
+  word-break: break-word;
 }
 
 .next-panel {
@@ -246,8 +349,13 @@ h2 {
   .topbar,
   .panel-header,
   .event-row,
-  .session-row {
+  .session-row,
+  .grab-layout {
     grid-template-columns: 1fr;
+  }
+
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .topbar,
@@ -268,6 +376,10 @@ h2 {
   }
 
   .status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid {
     grid-template-columns: 1fr;
   }
 }

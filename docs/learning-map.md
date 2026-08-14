@@ -267,10 +267,10 @@
 | `docs/product-output-blueprint.md` | 产品输出、身份划分、数据证据和面试展示蓝图 |
 | `docs/ui-workbench-requirements.md` | 前端工作台页面、接口、状态和验收需求 |
 | `docs/frontend-scaffold-plan.md` | 前端技术选型、目录、端口、代理和环境准备 |
-| `frontend/src/App.vue` | 前端最小工作台和活动接口联通页 |
+| `frontend/src/App.vue` | 前端工作台、活动接口联通页和同步抢票基础链路 |
 | `frontend/vite.config.js` | 前端端口和 `/api` 代理配置 |
-| `docs/stage-overview.md` | 第 1 到第 34 阶段总览和主题归类 |
-| `docs/stage-1-acceptance.md` 到 `docs/stage-34-acceptance.md` | 每阶段交付、验收、面试表达 |
+| `docs/stage-overview.md` | 第 1 到第 35 阶段总览和主题归类 |
+| `docs/stage-1-acceptance.md` 到 `docs/stage-35-acceptance.md` | 每阶段交付、验收、面试表达 |
 | `requests/stage-17.http` | 完整业务链路 HTTP 示例 |
 | `requests/stage-18.http` | 管理端密钥配置验收 |
 
@@ -302,7 +302,7 @@
 18. `src/main/java/com/eventrush/api/TraceFilter.java`
 19. `src/test/java/com/eventrush/service/TicketingServiceTest.java`
 
-看完这 19 个文件，至少能把项目主线、库存、幂等、MQ、接口治理、产品输出、前端展示需求、前端启动边界和前后端联通讲清楚。
+看完这 19 个文件，至少能把项目主线、库存、幂等、MQ、接口治理、产品输出、前端展示需求、前端启动边界、前后端联通和同步抢票链路讲清楚。
 
 ## 自测问题
 
@@ -322,3 +322,4 @@
 - 第一版前端为什么先做压测结果记录，而不是直接做自动监控大屏？
 - PowerShell 里 `npm` 被拦截时，为什么可以使用 `npm.cmd`？
 - 前端为什么要先跑通 `GET /api/events`，再做抢票和支付？
+- 抢票成功后为什么只是 `PENDING_PAYMENT`，还不能算已经出票？

@@ -5,6 +5,13 @@ const events = ref([])
 const loading = ref(false)
 const error = ref('')
 const traceId = ref('')
+const selectedSessionId = ref(null)
+const selectedTicketCategoryId = ref(null)
+const userId = ref(Math.floor(10000 + Math.random() * 90000))
+const grabLoading = ref(false)
+const grabError = ref('')
+const grabTraceId = ref('')
+const order = ref(null)
 
 const summary = computed(() => {
   const sessions = events.value.flatMap((event) => event.sessions ?? [])
@@ -18,6 +25,43 @@ const summary = computed(() => {
     remainingStock,
   }
 })
+
+const ticketOptions = computed(() =>
+  events.value.flatMap((event) =>
+    (event.sessions ?? []).flatMap((session) =>
+      (session.ticketCategories ?? []).map((category) => ({
+        event,
+        session,
+        category,
+        key: `${session.id}-${category.id}`,
+      })),
+    ),
+  ),
+)
+
+const selectedTicket = computed(() =>
+  ticketOptions.value.find(
+    (option) =>
+      option.session.id === selectedSessionId.value &&
+      option.category.id === selectedTicketCategoryId.value,
+  ),
+)
+
+function selectTicket(sessionId, ticketCategoryId) {
+  selectedSessionId.value = sessionId
+  selectedTicketCategoryId.value = ticketCategoryId
+  grabError.value = ''
+}
+
+function selectFirstTicketIfNeeded() {
+  if (selectedTicket.value || ticketOptions.value.length === 0) {
+    return
+  }
+
+  const firstAvailable = ticketOptions.value.find((option) => option.category.remainingStock > 0)
+  const fallback = firstAvailable ?? ticketOptions.value[0]
+  selectTicket(fallback.session.id, fallback.category.id)
+}
 
 async function loadEvents() {
   loading.value = true
@@ -33,12 +77,52 @@ async function loadEvents() {
     }
 
     events.value = payload.data ?? []
+    selectFirstTicketIfNeeded()
   } catch (caught) {
     events.value = []
     traceId.value = ''
     error.value = caught instanceof Error ? caught.message : '活动列表加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function grabTicket() {
+  if (!selectedTicket.value) {
+    grabError.value = '请先选择票档'
+    return
+  }
+
+  grabLoading.value = true
+  grabError.value = ''
+  grabTraceId.value = ''
+  order.value = null
+
+  try {
+    const response = await fetch('/api/orders/grab', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId: Number(userId.value),
+        sessionId: selectedSessionId.value,
+        ticketCategoryId: selectedTicketCategoryId.value,
+      }),
+    })
+    const payload = await response.json()
+    grabTraceId.value = payload.traceId ?? response.headers.get('X-Trace-Id') ?? ''
+
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.message || '抢票失败')
+    }
+
+    order.value = payload.data
+    await loadEvents()
+  } catch (caught) {
+    grabError.value = caught instanceof Error ? caught.message : '抢票失败'
+  } finally {
+    grabLoading.value = false
   }
 }
 
@@ -52,7 +136,7 @@ onMounted(loadEvents)
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
           <p class="eyebrow">EventRush 工作台</p>
-          <h1>前端接口联通页</h1>
+          <h1>用户抢票基础链路</h1>
         </div>
       </div>
       <button type="button" class="reload-button" :disabled="loading" @click="loadEvents">
@@ -104,13 +188,20 @@ onMounted(loadEvents)
                 <p class="event-meta">{{ session.startTime }} 至 {{ session.endTime }}</p>
               </div>
               <div class="ticket-list">
-                <span
+                <button
                   v-for="category in session.ticketCategories"
                   :key="category.id"
+                  type="button"
                   class="ticket-chip"
+                  :class="{
+                    selected:
+                      selectedSessionId === session.id &&
+                      selectedTicketCategoryId === category.id,
+                  }"
+                  @click="selectTicket(session.id, category.id)"
                 >
                   {{ category.name }} · 余 {{ category.remainingStock }}
-                </span>
+                </button>
               </div>
             </div>
           </div>
@@ -118,9 +209,69 @@ onMounted(loadEvents)
       </div>
     </section>
 
+    <section class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">POST /api/orders/grab</p>
+          <h2>同步抢票</h2>
+        </div>
+        <p v-if="grabTraceId" class="trace">traceId: {{ grabTraceId }}</p>
+      </div>
+
+      <div class="grab-layout">
+        <div class="form-grid">
+          <label>
+            <span>用户 ID</span>
+            <input v-model.number="userId" type="number" min="1" />
+          </label>
+          <label>
+            <span>场次 ID</span>
+            <input :value="selectedSessionId ?? ''" readonly />
+          </label>
+          <label>
+            <span>票档 ID</span>
+            <input :value="selectedTicketCategoryId ?? ''" readonly />
+          </label>
+          <button
+            type="button"
+            class="primary-action"
+            :disabled="grabLoading || !selectedTicket"
+            @click="grabTicket"
+          >
+            {{ grabLoading ? '抢票中' : '同步抢票' }}
+          </button>
+        </div>
+
+        <div class="selected-box">
+          <p class="box-title">当前选择</p>
+          <template v-if="selectedTicket">
+            <p>{{ selectedTicket.event.name }}</p>
+            <p class="event-meta">
+              场次 {{ selectedTicket.session.id }} · {{ selectedTicket.category.name }} · 剩余
+              {{ selectedTicket.category.remainingStock }}
+            </p>
+          </template>
+          <p v-else class="event-meta">暂无可选票档。</p>
+        </div>
+      </div>
+
+      <p v-if="grabError" class="error">{{ grabError }}</p>
+      <div v-if="order" class="order-result">
+        <p class="box-title">抢票结果</p>
+        <div class="result-grid">
+          <span>orderId</span>
+          <strong>{{ order.id }}</strong>
+          <span>订单状态</span>
+          <strong>{{ order.status }}</strong>
+          <span>支付截止</span>
+          <strong>{{ order.expireTime }}</strong>
+        </div>
+      </div>
+    </section>
+
     <section class="next-panel">
       <h2>下一步</h2>
-      <p>在这个基础上继续做抢票、支付、验票、管理查询和最近请求记录。</p>
+      <p>在这个基础上继续做支付出票，展示 ticketCode 和电子票状态。</p>
     </section>
   </main>
 </template>
