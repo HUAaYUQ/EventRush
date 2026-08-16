@@ -56,7 +56,7 @@ public class ElectronicTicketRepository {
                         SELECT ticket.id, ticket.order_id, ticket.passenger_id, passenger.passenger_name,
                                passenger.passenger_document_type, passenger.passenger_document_last4,
                                ticket.ticket_code, ticket.ticket_status, ticket.generated_time,
-                               ticket.verified_time, ticket.verifier_id
+                               ticket.verified_time, ticket.verifier_id, ticket.refunded_time
                         FROM electronic_ticket ticket
                         JOIN ticket_order_passenger passenger ON passenger.id = ticket.passenger_id
                         WHERE ticket.ticket_code = ?
@@ -71,7 +71,7 @@ public class ElectronicTicketRepository {
                         SELECT ticket.id, ticket.order_id, ticket.passenger_id, passenger.passenger_name,
                                passenger.passenger_document_type, passenger.passenger_document_last4,
                                ticket.ticket_code, ticket.ticket_status, ticket.generated_time,
-                               ticket.verified_time, ticket.verifier_id
+                               ticket.verified_time, ticket.verifier_id, ticket.refunded_time
                         FROM electronic_ticket ticket
                         JOIN ticket_order_passenger passenger ON passenger.id = ticket.passenger_id
                         WHERE ticket.order_id = ?
@@ -87,7 +87,7 @@ public class ElectronicTicketRepository {
                         SELECT ticket.id, ticket.order_id, ticket.passenger_id, passenger.passenger_name,
                                passenger.passenger_document_type, passenger.passenger_document_last4,
                                ticket.ticket_code, ticket.ticket_status, ticket.generated_time,
-                               ticket.verified_time, ticket.verifier_id
+                               ticket.verified_time, ticket.verifier_id, ticket.refunded_time
                         FROM electronic_ticket ticket
                         JOIN ticket_order_passenger passenger ON passenger.id = ticket.passenger_id
                         WHERE ticket.passenger_id = ?
@@ -115,6 +115,20 @@ public class ElectronicTicketRepository {
         return findByCode(ticketCode).orElseThrow(() -> new BusinessException("ticket not found"));
     }
 
+    public boolean markRefunded(String ticketCode, LocalDateTime refundedTime) {
+        int updated = jdbcTemplate.update("""
+                        UPDATE electronic_ticket
+                        SET ticket_status = ?, refunded_time = ?
+                        WHERE ticket_code = ? AND ticket_status = ?
+                        """,
+                TicketStatus.REFUNDED.name(),
+                Timestamp.valueOf(refundedTime),
+                ticketCode,
+                TicketStatus.VALID.name()
+        );
+        return updated == 1;
+    }
+
     private ElectronicTicket mapTicket(java.sql.ResultSet resultSet) throws java.sql.SQLException {
         return new ElectronicTicket(
                 resultSet.getLong("id"),
@@ -127,7 +141,8 @@ public class ElectronicTicketRepository {
                 TicketStatus.valueOf(resultSet.getString("ticket_status")),
                 resultSet.getObject("generated_time", LocalDateTime.class),
                 resultSet.getObject("verified_time", LocalDateTime.class),
-                resultSet.getObject("verifier_id", Long.class)
+                resultSet.getObject("verifier_id", Long.class),
+                resultSet.getObject("refunded_time", LocalDateTime.class)
         );
     }
 }

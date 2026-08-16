@@ -4,6 +4,7 @@ import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketPassenger;
+import com.eventrush.domain.TicketRefundResult;
 import com.eventrush.service.AsyncGrabService;
 import com.eventrush.service.TicketingService;
 import jakarta.validation.Valid;
@@ -86,6 +87,15 @@ class TicketingController {
         return ticketingService.payOrderForUser(userId, orderId);
     }
 
+    @PostMapping("/users/{userId}/orders/{orderId}/refunds")
+    TicketRefundResult refundUserOrder(
+            @PathVariable Long userId,
+            @PathVariable Long orderId,
+            @Valid @RequestBody RefundTicketsRequest request
+    ) {
+        return ticketingService.refundTicketsForUser(userId, orderId, request.ticketCodes());
+    }
+
     @GetMapping("/users/{userId}/orders/{orderId}/tickets")
     List<ElectronicTicket> getUserOrderTickets(@PathVariable Long userId, @PathVariable Long orderId) {
         return ticketingService.getTicketsByOrderIdForUser(userId, orderId);
@@ -136,6 +146,13 @@ class TicketingController {
     record VerifyTicketRequest(
             @NotBlank(message = "ticketCode is required") String ticketCode,
             @NotNull(message = "verifierId is required") Long verifierId
+    ) {
+    }
+
+    record RefundTicketsRequest(
+            @NotEmpty(message = "ticketCodes is required")
+            @Size(max = 5, message = "ticketCodes size must be between 1 and 5")
+            List<@NotBlank(message = "ticketCode is required") String> ticketCodes
     ) {
     }
 }

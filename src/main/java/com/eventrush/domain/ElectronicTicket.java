@@ -13,11 +13,19 @@ public record ElectronicTicket(
         TicketStatus status,
         LocalDateTime generatedTime,
         LocalDateTime verifiedTime,
-        Long verifierId
+        Long verifierId,
+        LocalDateTime refundedTime
 ) {
 
     public ElectronicTicket verify(Long verifierId, LocalDateTime verifiedTime) {
         return new ElectronicTicket(id, orderId, passengerId, passengerName, passengerDocumentType,
-                passengerDocumentLast4, ticketCode, TicketStatus.VERIFIED, generatedTime, verifiedTime, verifierId);
+                passengerDocumentLast4, ticketCode, TicketStatus.VERIFIED, generatedTime, verifiedTime, verifierId,
+                refundedTime);
+    }
+
+    public ElectronicTicket refund(LocalDateTime refundedTime) {
+        return new ElectronicTicket(id, orderId, passengerId, passengerName, passengerDocumentType,
+                passengerDocumentLast4, ticketCode, TicketStatus.REFUNDED, generatedTime, verifiedTime, verifierId,
+                refundedTime);
     }
 }

@@ -86,6 +86,13 @@ public class EventCatalogService {
         return findEventBySessionId(sessionId).id();
     }
 
+    public EventSession getSession(Long sessionId) {
+        return findEventBySessionId(sessionId).sessions().stream()
+                .filter(session -> session.id().equals(sessionId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "场次不存在"));
+    }
+
     private Event findEventBySessionId(Long sessionId) {
         return events.values().stream()
                 .filter(event -> event.sessions().stream().anyMatch(session -> session.id().equals(sessionId)))

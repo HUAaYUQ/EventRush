@@ -96,8 +96,8 @@ public class TicketOrderRepository {
     public Optional<TicketOrder> findById(Long orderId) {
         return jdbcTemplate.query("""
                         SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
-                               quantity, order_status,
-                               created_time, pay_time, cancel_time, expire_time
+                               quantity, refunded_quantity, refunded_amount_cents, order_status,
+                               created_time, pay_time, cancel_time, refund_time, expire_time
                         FROM ticket_order
                         WHERE id = ?
                         """,
@@ -110,11 +110,14 @@ public class TicketOrderRepository {
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
                         resultSet.getInt("quantity"),
+                        resultSet.getInt("refunded_quantity"),
+                        resultSet.getLong("refunded_amount_cents"),
                         List.of(),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
                         resultSet.getObject("cancel_time", LocalDateTime.class),
+                        resultSet.getObject("refund_time", LocalDateTime.class),
                         resultSet.getObject("expire_time", LocalDateTime.class)
                 ),
                 orderId
@@ -124,8 +127,8 @@ public class TicketOrderRepository {
     public List<TicketOrder> findExpiredPending(LocalDateTime now, int limit) {
         return jdbcTemplate.query("""
                         SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
-                               quantity, order_status,
-                               created_time, pay_time, cancel_time, expire_time
+                               quantity, refunded_quantity, refunded_amount_cents, order_status,
+                               created_time, pay_time, cancel_time, refund_time, expire_time
                         FROM ticket_order
                         WHERE order_status = ?
                           AND expire_time <= ?
@@ -141,11 +144,14 @@ public class TicketOrderRepository {
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
                         resultSet.getInt("quantity"),
+                        resultSet.getInt("refunded_quantity"),
+                        resultSet.getLong("refunded_amount_cents"),
                         List.of(),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
                         resultSet.getObject("cancel_time", LocalDateTime.class),
+                        resultSet.getObject("refund_time", LocalDateTime.class),
                         resultSet.getObject("expire_time", LocalDateTime.class)
                 ),
                 OrderStatus.PENDING_PAYMENT.name(),
@@ -157,8 +163,8 @@ public class TicketOrderRepository {
     public List<TicketOrder> findByUserId(Long userId) {
         return jdbcTemplate.query("""
                         SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
-                               quantity, order_status,
-                               created_time, pay_time, cancel_time, expire_time
+                               quantity, refunded_quantity, refunded_amount_cents, order_status,
+                               created_time, pay_time, cancel_time, refund_time, expire_time
                         FROM ticket_order
                         WHERE user_id = ?
                         ORDER BY id DESC
@@ -172,11 +178,14 @@ public class TicketOrderRepository {
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
                         resultSet.getInt("quantity"),
+                        resultSet.getInt("refunded_quantity"),
+                        resultSet.getLong("refunded_amount_cents"),
                         List.of(),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
                         resultSet.getObject("cancel_time", LocalDateTime.class),
+                        resultSet.getObject("refund_time", LocalDateTime.class),
                         resultSet.getObject("expire_time", LocalDateTime.class)
                 ),
                 userId
@@ -186,8 +195,9 @@ public class TicketOrderRepository {
     private TicketOrder withPassengers(TicketOrder order) {
         return new TicketOrder(
                 order.id(), order.userId(), order.eventId(), order.sessionId(), order.ticketCategoryId(),
-                order.unitPriceCents(), order.amountCents(), order.quantity(), findPassengers(order.id()),
-                order.status(), order.createdTime(), order.payTime(), order.cancelTime(), order.expireTime()
+                order.unitPriceCents(), order.amountCents(), order.quantity(), order.refundedQuantity(),
+                order.refundedAmountCents(), findPassengers(order.id()), order.status(), order.createdTime(),
+                order.payTime(), order.cancelTime(), order.refundTime(), order.expireTime()
         );
     }
 
@@ -218,13 +228,12 @@ public class TicketOrderRepository {
                         WHERE user_id = ?
                           AND session_id = ?
                           AND ticket_category_id = ?
-                          AND order_status <> ?
+                          AND active_grab_key IS NOT NULL
                         """,
                 Integer.class,
                 userId,
                 sessionId,
-                ticketCategoryId,
-                OrderStatus.CANCELED.name()
+                ticketCategoryId
         );
         return count != null && count > 0;
     }
@@ -259,6 +268,41 @@ public class TicketOrderRepository {
                 OrderStatus.PENDING_PAYMENT.name()
         );
         return updated == 1;
+    }
+
+    public TicketOrder recordRefund(Long orderId, int refundedQuantity, long refundedAmountCents,
+                                    LocalDateTime refundTime) {
+        int updated = jdbcTemplate.update("""
+                        UPDATE ticket_order
+                        SET refund_time = ?,
+                            order_status = CASE
+                                WHEN refunded_quantity + ? >= quantity THEN ?
+                                ELSE ?
+                            END,
+                            active_grab_key = CASE
+                                WHEN refunded_quantity + ? >= quantity THEN NULL
+                                ELSE active_grab_key
+                            END,
+                            refunded_amount_cents = refunded_amount_cents + ?,
+                            refunded_quantity = refunded_quantity + ?
+                        WHERE id = ? AND order_status IN (?, ?)
+                        """,
+                Timestamp.valueOf(refundTime),
+                refundedQuantity,
+                OrderStatus.REFUNDED.name(),
+                OrderStatus.PARTIALLY_REFUNDED.name(),
+                refundedQuantity,
+                refundedAmountCents,
+                refundedQuantity,
+                orderId,
+                OrderStatus.PAID.name(),
+                OrderStatus.PARTIALLY_REFUNDED.name()
+        );
+        if (updated != 1) {
+            throw new BusinessException("ORDER_NOT_REFUNDABLE", HttpStatus.CONFLICT,
+                    "当前订单状态不能退票，请刷新订单后重试");
+        }
+        return findById(orderId).orElseThrow(() -> new BusinessException("order not found"));
     }
 
     private String activeGrabKey(Long userId, Long sessionId, Long ticketCategoryId) {

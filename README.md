@@ -24,6 +24,7 @@ EventRush 是一个面向高并发活动票务场景的 Java 后端项目，模�
 14. 超时取消后释放库存和购买资格，用户可以重新购买同一票档。
 15. 下单前核对购票人、票档、数量和金额，订单只保存证件类型与证件后四位。
 16. 一笔订单支持 1 到 5 位购票人，按人数扣减库存，并为每位购票人生成独立票码和验票状态。
+17. 支付后支持按单张电子票部分退票或整单退票，退款幂等、库存按实际退票数恢复，已验票凭证不可退。
 
 ## 技术栈
 
@@ -100,7 +101,7 @@ http://localhost:18086
 mvn test
 ```
 
-测试会覆盖核心业务链路、统一响应、`traceId`、管理端鉴权、支付幂等、异步抢票结果和订单超时取消等能力。
+测试会覆盖核心业务链路、统一响应、`traceId`、管理端鉴权、支付与退票幂等、异步抢票结果和订单超时取消等能力。
 
 ## 接口文档
 
@@ -266,6 +267,12 @@ docs/stage-42-acceptance.md
 docs/stage-43-acceptance.md
 ```
 
+多人订单部分退票验收：
+
+```text
+docs/stage-49-acceptance.md
+```
+
 项目阶段总览：
 
 ```text
@@ -286,8 +293,9 @@ requests/stage-18.http
 3. 调用支付接口，拿到 `ticketCode`。
 4. 查询订单详情，确认状态为 `PAID`。
 5. 查询电子票，确认状态为 `VALID`。
-6. 调用验票接口，确认状态变为 `VERIFIED`。
-7. 携带 `X-Admin-Key` 调用管理端接口做后台查询。
+6. 可选择一张 `VALID` 电子票退票，确认该票变为 `REFUNDED`、库存只恢复 1。
+7. 或调用验票接口，确认对应电子票状态变为 `VERIFIED`。
+8. 携带 `X-Admin-Key` 调用管理端接口做后台查询。
 
 ## 重要目录
 
@@ -337,7 +345,7 @@ docs/sql/mysql-schema.sql
 docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
-docs/stage-43-acceptance.md
+docs/stage-49-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

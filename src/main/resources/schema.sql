@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS ticket_order (
     unit_price_cents BIGINT NOT NULL DEFAULT 0,
     amount_cents BIGINT NOT NULL DEFAULT 0,
     quantity INT NOT NULL DEFAULT 1,
+    refunded_quantity INT NOT NULL DEFAULT 0,
+    refunded_amount_cents BIGINT NOT NULL DEFAULT 0,
     passenger_name VARCHAR(64) NOT NULL DEFAULT '历史演示用户',
     passenger_document_type VARCHAR(32) NOT NULL DEFAULT 'OTHER',
     passenger_document_last4 VARCHAR(4) NOT NULL DEFAULT '0000',
@@ -15,6 +17,7 @@ CREATE TABLE IF NOT EXISTS ticket_order (
     created_time TIMESTAMP NOT NULL,
     pay_time TIMESTAMP NULL,
     cancel_time TIMESTAMP NULL,
+    refund_time TIMESTAMP NULL,
     expire_time TIMESTAMP NOT NULL
 );
 
@@ -22,13 +25,19 @@ ALTER TABLE ticket_order DROP CONSTRAINT IF EXISTS uk_ticket_order_once;
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS unit_price_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS amount_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAULT 1;
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS refunded_quantity INT NOT NULL DEFAULT 0;
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS refunded_amount_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS passenger_name VARCHAR(64) NOT NULL DEFAULT '历史演示用户';
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS passenger_document_type VARCHAR(32) NOT NULL DEFAULT 'OTHER';
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS passenger_document_last4 VARCHAR(4) NOT NULL DEFAULT '0000';
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS active_grab_key VARCHAR(96) NULL;
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS refund_time TIMESTAMP NULL;
 UPDATE ticket_order
 SET active_grab_key = CONCAT(user_id, ':', session_id, ':', ticket_category_id)
-WHERE order_status <> 'CANCELED' AND active_grab_key IS NULL;
+WHERE order_status IN ('PENDING_PAYMENT', 'PAID', 'PARTIALLY_REFUNDED') AND active_grab_key IS NULL;
+UPDATE ticket_order
+SET active_grab_key = NULL
+WHERE order_status IN ('CANCELED', 'REFUNDED');
 ALTER TABLE ticket_order ADD CONSTRAINT IF NOT EXISTS uk_ticket_order_active UNIQUE (active_grab_key);
 
 CREATE TABLE IF NOT EXISTS ticket_order_passenger (
@@ -61,11 +70,13 @@ CREATE TABLE IF NOT EXISTS electronic_ticket (
     generated_time TIMESTAMP NOT NULL,
     verified_time TIMESTAMP NULL,
     verifier_id BIGINT NULL,
+    refunded_time TIMESTAMP NULL,
     CONSTRAINT uk_electronic_ticket_passenger UNIQUE (passenger_id),
     CONSTRAINT uk_electronic_ticket_code UNIQUE (ticket_code)
 );
 
 ALTER TABLE electronic_ticket ADD COLUMN IF NOT EXISTS passenger_id BIGINT NULL;
+ALTER TABLE electronic_ticket ADD COLUMN IF NOT EXISTS refunded_time TIMESTAMP NULL;
 UPDATE electronic_ticket
 SET passenger_id = (
     SELECT MIN(ticket_order_passenger.id)

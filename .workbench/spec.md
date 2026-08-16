@@ -2,7 +2,7 @@
 name: EventRush 票务产品与工程证据台
 domain: system
 subject: 票务订单
-purpose: 让用户先像真实票务产品一样完成预订、支付和验票；让学习者和面试展示者在独立入口里查看排查、压测和 traceId 证据。
+purpose: 让用户先像真实票务产品一样完成预订、支付、退票和验票；让学习者和面试展示者在独立入口里查看排查、压测和 traceId 证据。
 surface: desktop
 structure: { primary: ticket_product, secondary: evidence_console }
 moment: 每次阶段验收或面试演示前
@@ -30,7 +30,7 @@ cold_start:
 
 home:
   - 车票预订：活动票档选择、1 到 5 位购票人脱敏信息、订单核对、提交订单、逐人出票
-  - 我的电子票：订单恢复、每位购票人的独立 ticketCode 和验票状态
+  - 我的电子票：订单恢复、每位购票人的独立 ticketCode、验票状态和按票退票
   - 验票入口：票码输入、验票员 ID、入场核验结果
   - 工程证据：hook、本轮验收摘要、最近请求记录、压测证据、管理排查
 
@@ -43,10 +43,10 @@ channels:
   - name: 票务链路
     type: today
     weight: primary
-    does: 选择票档、抢票、支付、查票、验票，把订单从创建走到入场核验
+    does: 选择票档、抢票、支付、查票、按票退票或验票，把订单从创建走到售后或入场核验
     pages:
-      - { level: L1, shows: 操作流，按活动票档 -> 抢票 -> 支付 -> 电子票 -> 验票排列, actions: [加载活动, 同步抢票, 支付出票, 查询电子票, 验票入场] }
-      - { level: L2, shows: 单个订单详情和对应电子票, actions: [刷新订单, 复制 ticketCode] }
+      - { level: L1, shows: 操作流，按活动票档 -> 抢票 -> 支付 -> 电子票 -> 退票或验票排列, actions: [加载活动, 同步抢票, 支付出票, 查询电子票, 提交退票, 验票入场] }
+      - { level: L2, shows: 单个订单详情、逐人电子票和退款金额核对, actions: [刷新订单, 选择退票票码, 复制 ticketCode] }
   - name: 验票
     type: record
     weight: regular
@@ -93,7 +93,7 @@ entities:
     written_by: { id: system, session_id: system, name: system, remaining_stock: system }
     relations: [TicketCategory n-1 Session, TicketCategory 1-n TicketOrder]
   - name: TicketOrder
-    fields: [id, user_id, session_id, ticket_category_id, quantity, unit_price_cents, amount_cents, status, expire_time]
+    fields: [id, user_id, session_id, ticket_category_id, quantity, unit_price_cents, amount_cents, refunded_quantity, refunded_amount_cents, status, refund_time, expire_time]
     written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, quantity: system, unit_price_cents: system, amount_cents: system, status: system, expire_time: system }
     relations: [TicketOrder 1-n TicketPassenger, TicketOrder 1-n ElectronicTicket]
   - name: TicketPassenger
@@ -101,7 +101,7 @@ entities:
     written_by: { id: system, order_id: system, sequence: system, name: user, document_type: user, document_last4: user }
     relations: [TicketPassenger n-1 TicketOrder, TicketPassenger 1-1 ElectronicTicket]
   - name: ElectronicTicket
-    fields: [ticket_code, order_id, passenger_id, status, verifier_id]
+    fields: [ticket_code, order_id, passenger_id, status, verifier_id, refunded_time]
     written_by: { ticket_code: system, order_id: system, passenger_id: system, status: system, verifier_id: user }
     relations: [ElectronicTicket n-1 TicketOrder, ElectronicTicket 1-1 TicketPassenger]
   - name: RequestRecord

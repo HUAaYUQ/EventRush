@@ -49,6 +49,7 @@ http://localhost:18086
 | `409` | `TICKET_SOLD_OUT` | 当前票档库存不足 |
 | `409` | `ORDER_EXPIRED`、`ORDER_NOT_PAYABLE` | 订单已超时或当前状态不能支付 |
 | `409` | `TICKET_ALREADY_VERIFIED` | 电子票已经核验，不能重复入场 |
+| `409` | `TICKET_NOT_REFUNDABLE`、`REFUND_WINDOW_CLOSED` | 电子票已验票，或场次已开始，不能在线退票 |
 | `429` | `GRAB_RATE_LIMITED` | 抢票请求过于频繁 |
 | `503` | `STOCK_SERVICE_UNAVAILABLE` | Redis 库存服务尚未就绪 |
 | `401` | `UNAUTHORIZED` | 管理端接口未携带或携带错误 `X-Admin-Key` |
@@ -98,11 +99,14 @@ http://localhost:18086
 | `unitPriceCents` | 下单时的票档单价快照，单位为分 |
 | `amountCents` | 订单应付金额，等于单价乘以购票人数，单位为分 |
 | `quantity` | 购票数量，由 `passengers` 数量推导，范围为 1 到 5 |
+| `refundedQuantity` | 已成功退票数量；重复请求不会重复累计 |
+| `refundedAmountCents` | 累计退款金额，单位为分 |
 | `passengers` | 购票人快照列表，每项包含 `id`、顺序、姓名、证件类型和证件后四位 |
-| `status` | 订单状态：`PENDING_PAYMENT`、`PAID`、`CANCELED` |
+| `status` | 订单状态：`PENDING_PAYMENT`、`PAID`、`PARTIALLY_REFUNDED`、`REFUNDED`、`CANCELED` |
 | `createdTime` | 创建时间 |
 | `payTime` | 支付时间 |
 | `cancelTime` | 取消时间 |
+| `refundTime` | 最近一次成功退票时间 |
 | `expireTime` | 支付截止时间 |
 
 ### 电子票 `ElectronicTicket`
@@ -116,10 +120,11 @@ http://localhost:18086
 | `passengerDocumentType` | 证件类型：`ID_CARD`、`PASSPORT`、`OTHER` |
 | `passengerDocumentLast4` | 证件号码后四位；接口不接收完整证件号 |
 | `ticketCode` | 票码 |
-| `status` | 票状态：`VALID`、`VERIFIED` |
+| `status` | 票状态：`VALID`、`VERIFIED`、`REFUNDED` |
 | `generatedTime` | 出票时间 |
 | `verifiedTime` | 核验时间 |
 | `verifierId` | 核验人员 ID |
+| `refundedTime` | 该电子票成功退票的时间 |
 
 ## 普通用户接口
 
@@ -243,6 +248,23 @@ GET /api/users/{userId}/orders/{orderId}/tickets
 
 > 当前 `userId` 归属校验用于本地产品演示，还不等同于登录认证。正式身份系统仍是后续阶段。
 
+### 按电子票退票
+
+```http
+POST /api/users/{userId}/orders/{orderId}/refunds
+Content-Type: application/json
+
+{
+  "ticketCodes": ["ER-xxxx"]
+}
+```
+
+一次可选择 1 到 5 张当前用户、当前订单下的 `VALID` 电子票。当前阶段不收手续费，实际退款金额等于订单单价乘以本次新退票数量。
+
+部分退票后订单变为 `PARTIALLY_REFUNDED`，未退电子票仍可入场，用户暂时不能重复购买同一票档。全部电子票退完后订单变为 `REFUNDED`，购买资格恢复。已核验票和场次开始后的票不能在线退票。
+
+成功返回订单、该订单全部电子票、`newlyRefundedQuantity` 和 `newlyRefundedAmountCents`。重复提交已退票码时两个本次新增字段都为 `0`，不会重复退款或释放库存。
+
 ### 查询电子票
 
 ```http
@@ -317,8 +339,10 @@ X-Admin-Key: eventrush-admin-key
 3. 调用支付接口，拿到 `ticketCode`。
 4. 查询订单详情，确认状态为 `PAID`。
 5. 查询电子票，确认状态为 `VALID`。
-6. 调用验票接口，确认状态变为 `VERIFIED`。
-7. 携带 `X-Admin-Key` 调用管理端接口，确认能按用户、订单、票码查询数据。
+6. 选择其中一张票调用退票接口，确认订单变为 `PARTIALLY_REFUNDED`、该票变为 `REFUNDED`，另一张仍为 `VALID`。
+7. 重复提交同一票码，确认新增退款数量和金额都为 `0`。
+8. 对剩余 `VALID` 票可继续验票，或全部退完后确认订单为 `REFUNDED` 并可重新购买。
+9. 携带 `X-Admin-Key` 调用管理端接口，确认能按用户、订单、票码查询数据。
 
 ## 你需要学会的点
 

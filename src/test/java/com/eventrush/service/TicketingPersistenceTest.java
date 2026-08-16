@@ -109,6 +109,44 @@ class TicketingPersistenceTest {
                 .containsExactlyElementsOf(first.stream().map(ElectronicTicket::ticketCode).toList());
     }
 
+    @Test
+    void persistsPartialRefundAndKeepsRepeatedRequestIdempotent() {
+        TicketOrder order = ticketingService.grabTicket(304L, 101L, 1001L, List.of(
+                passenger("李雷", PassengerDocumentType.PASSPORT, "8X2P"),
+                passenger("韩梅梅", PassengerDocumentType.ID_CARD, "1024")
+        ));
+        List<ElectronicTicket> tickets = ticketingService.payOrder(order.id());
+
+        ticketingService.refundTicketsForUser(304L, order.id(), List.of(tickets.get(0).ticketCode()));
+        var repeated = ticketingService.refundTicketsForUser(
+                304L, order.id(), List.of(tickets.get(0).ticketCode()));
+
+        assertThat(repeated.newlyRefundedQuantity()).isZero();
+        assertThat(ticketOrderRepository.findById(order.id()))
+                .get()
+                .satisfies(refunded -> {
+                    assertThat(refunded.status()).isEqualTo(OrderStatus.PARTIALLY_REFUNDED);
+                    assertThat(refunded.refundedQuantity()).isEqualTo(1);
+                    assertThat(refunded.refundedAmountCents()).isEqualTo(19900);
+                    assertThat(refunded.refundTime()).isNotNull();
+                });
+        assertThat(electronicTicketRepository.findByOrderId(order.id()).get(0))
+                .satisfies(refunded -> {
+                    assertThat(refunded.status()).isEqualTo(TicketStatus.REFUNDED);
+                    assertThat(refunded.refundedTime()).isNotNull();
+                });
+
+        ticketingService.refundTicketsForUser(304L, order.id(), List.of(tickets.get(1).ticketCode()));
+
+        assertThat(ticketOrderRepository.findById(order.id()))
+                .get()
+                .satisfies(refunded -> {
+                    assertThat(refunded.status()).isEqualTo(OrderStatus.REFUNDED);
+                    assertThat(refunded.refundedQuantity()).isEqualTo(2);
+                    assertThat(refunded.refundedAmountCents()).isEqualTo(39800);
+                });
+    }
+
     private TicketPassenger passenger(
             String name,
             PassengerDocumentType documentType,

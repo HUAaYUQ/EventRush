@@ -21,6 +21,11 @@ const payError = ref('')
 const payTraceId = ref('')
 const ticket = ref(null)
 const issuedTickets = ref([])
+const refundSelection = ref([])
+const refundLoading = ref(false)
+const refundError = ref('')
+const refundTraceId = ref('')
+const refundResult = ref(null)
 const myOrders = ref([])
 const myOrdersLoading = ref(false)
 const myOrdersError = ref('')
@@ -175,8 +180,21 @@ const currentOrderContext = computed(() => getOrderContext(order.value))
 const verifiedTicketCount = computed(
   () => issuedTickets.value.filter((issued) => issued.status === 'VERIFIED').length,
 )
-const allIssuedTicketsVerified = computed(
-  () => issuedTickets.value.length > 0 && verifiedTicketCount.value === issuedTickets.value.length,
+const refundedTicketCount = computed(
+  () => issuedTickets.value.filter((issued) => issued.status === 'REFUNDED').length,
+)
+const refundableTickets = computed(
+  () => issuedTickets.value.filter((issued) => issued.status === 'VALID'),
+)
+const selectedRefundTickets = computed(
+  () => refundableTickets.value.filter((issued) => refundSelection.value.includes(issued.ticketCode)),
+)
+const refundPreviewAmount = computed(
+  () => (order.value?.unitPriceCents ?? 0) * selectedRefundTickets.value.length,
+)
+const allIssuedTicketsResolved = computed(
+  () => issuedTickets.value.length > 0
+    && verifiedTicketCount.value + refundedTicketCount.value === issuedTickets.value.length,
 )
 
 const pressureSuccessRate = computed(() => {
@@ -234,8 +252,16 @@ const hookText = computed(() => {
     return '本轮尚未创建订单 · 从车票预订开始'
   }
 
-  if (order.value.status !== 'PAID') {
-    return `本轮订单 ${order.value.status} · 等待支付出票`
+  if (order.value.status === 'PENDING_PAYMENT') {
+    return '本轮订单待支付 · 等待支付出票'
+  }
+
+  if (order.value.status === 'CANCELED') {
+    return '本轮订单已取消 · 可重新选择票档'
+  }
+
+  if (order.value.status === 'REFUNDED') {
+    return `本轮订单已退票 · ${refundedTicketCount.value || order.value.refundedQuantity || 0} 张票码已失效`
   }
 
   if (issuedTickets.value.length === 0 && !ticket.value) {
@@ -245,7 +271,10 @@ const hookText = computed(() => {
   const failureHint = requestRecords.value.some((record) => record.result !== '成功')
     ? ' · 最近失败请求可用 traceId 排查'
     : ''
-  return `本轮订单 PAID · 已生成 ${issuedTickets.value.length || 1} 张电子票${failureHint}`
+  const refundHint = order.value.status === 'PARTIALLY_REFUNDED'
+    ? ` · 已退 ${order.value.refundedQuantity ?? refundedTicketCount.value} 张`
+    : ''
+  return `本轮订单${orderStatusLabel(order.value.status)} · 已生成 ${issuedTickets.value.length || 1} 张电子票${refundHint}${failureHint}`
 })
 const coldStartDayOne =
   '先选择一个有库存的票档，填写购票人并核对订单，再完成支付出票。'
@@ -292,12 +321,12 @@ const acceptanceSummary = computed(() => [
     label: '订单状态',
     value: order.value?.status ?? '未创建',
     detail: order.value ? '来自订单接口' : '等待抢票',
-    tone: order.value?.status === 'PAID' ? 'ready' : 'pending',
+    tone: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(order.value?.status) ? 'ready' : 'pending',
   },
   {
     label: '电子票状态',
     value: issuedTickets.value.length
-      ? `${verifiedTicketCount.value}/${issuedTickets.value.length} 已入场`
+      ? `${verifiedTicketCount.value} 张已入场 · ${refundedTicketCount.value} 张已退票`
       : (ticket.value?.status ?? '未出票'),
     detail: issuedTickets.value.length ? '每位购票人一张独立票码' : '等待支付',
     tone: issuedTickets.value.length ? 'ready' : 'pending',
@@ -341,11 +370,11 @@ const pipelineSteps = computed(() => [
     done: Boolean(ticketLookupTraceId.value || ticket.value || issuedTickets.value.length),
   },
   {
-    name: '验票',
+    name: '验票 / 退票',
     detail: issuedTickets.value.length
-      ? `${verifiedTicketCount.value}/${issuedTickets.value.length} 张已核验`
-      : (ticket.value?.status === 'VERIFIED' ? '已核验入场' : '验证入场状态'),
-    done: allIssuedTicketsVerified.value || ticket.value?.status === 'VERIFIED',
+      ? `${verifiedTicketCount.value} 张入场 · ${refundedTicketCount.value} 张退票`
+      : (['VERIFIED', 'REFUNDED'].includes(ticket.value?.status) ? '电子票已处理' : '验证入场或退票状态'),
+    done: allIssuedTicketsResolved.value || ['VERIFIED', 'REFUNDED'].includes(ticket.value?.status),
   },
 ])
 
@@ -466,6 +495,8 @@ function orderStatusLabel(status) {
   return {
     PENDING_PAYMENT: '待支付',
     PAID: '已出票',
+    PARTIALLY_REFUNDED: '部分退票',
+    REFUNDED: '已退票',
     CANCELED: '已取消',
   }[status] ?? status
 }
@@ -474,6 +505,7 @@ function ticketStatusLabel(status) {
   return {
     VALID: '待入场',
     VERIFIED: '已入场',
+    REFUNDED: '已退票',
   }[status] ?? status
 }
 
@@ -656,7 +688,16 @@ async function loadMyOrders() {
   }
 }
 
+function resetRefundState() {
+  refundSelection.value = []
+  refundLoading.value = false
+  refundError.value = ''
+  refundTraceId.value = ''
+  refundResult.value = null
+}
+
 function continuePayment(targetOrder) {
+  resetRefundState()
   order.value = targetOrder
   ticket.value = null
   issuedTickets.value = []
@@ -665,6 +706,7 @@ function continuePayment(targetOrder) {
 }
 
 function buyAgain(targetOrder) {
+  resetRefundState()
   order.value = null
   ticket.value = null
   issuedTickets.value = []
@@ -684,6 +726,7 @@ function buyAgain(targetOrder) {
 async function viewOrderTickets(targetOrder) {
   ticketLookupLoading.value = true
   ticketLookupError.value = ''
+  resetRefundState()
   order.value = targetOrder
 
   try {
@@ -717,6 +760,7 @@ async function grabTicket() {
   order.value = null
   ticket.value = null
   issuedTickets.value = []
+  resetRefundState()
   ticketLookupCode.value = ''
   payError.value = ''
   payTraceId.value = ''
@@ -878,6 +922,7 @@ async function payOrder() {
   payTraceId.value = ''
   ticket.value = null
   issuedTickets.value = []
+  resetRefundState()
   ticketLookupError.value = ''
   verifyError.value = ''
 
@@ -908,6 +953,60 @@ async function payOrder() {
   }
 }
 
+async function refundTickets() {
+  if (!order.value || selectedRefundTickets.value.length === 0) {
+    refundError.value = '请先选择至少一张待入场电子票'
+    return
+  }
+
+  const confirmed = window.confirm(
+    `即将退 ${selectedRefundTickets.value.length} 张电子票，票码会立即失效且无法入场。\n`
+      + `预计退款 ${formatMoney(refundPreviewAmount.value)}，当前阶段手续费为 ${formatMoney(0)}。\n\n确认继续退票吗？`,
+  )
+  if (!confirmed) {
+    return
+  }
+
+  refundLoading.value = true
+  refundError.value = ''
+  refundTraceId.value = ''
+  refundResult.value = null
+
+  try {
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '提交退票',
+      'POST',
+      `/api/users/${userId.value}/orders/${order.value.id}/refunds`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticketCodes: selectedRefundTickets.value.map((issued) => issued.ticketCode),
+        }),
+      },
+      (data) => data.newlyRefundedQuantity > 0
+        ? `退票 ${data.newlyRefundedQuantity} 张 · ${formatMoney(data.newlyRefundedAmountCents)}`
+        : '所选电子票此前已退票，本次未重复退款',
+    )
+
+    refundTraceId.value = nextTraceId
+    refundResult.value = payload.data
+    order.value = payload.data.order
+    issuedTickets.value = payload.data.tickets ?? []
+    ticket.value = issuedTickets.value.find((issued) => issued.status === 'VALID')
+      ?? issuedTickets.value[0]
+      ?? null
+    ticketLookupCode.value = ticket.value?.ticketCode ?? ''
+    refundSelection.value = []
+    await Promise.all([loadMyOrders(), loadEvents()])
+  } catch (caught) {
+    refundError.value = caught instanceof Error ? caught.message : '退票失败'
+  } finally {
+    refundLoading.value = false
+  }
+}
+
 async function lookupTicket() {
   const code = ticketLookupCode.value.trim()
 
@@ -919,6 +1018,9 @@ async function lookupTicket() {
   ticketLookupLoading.value = true
   ticketLookupError.value = ''
   ticketLookupTraceId.value = ''
+  refundSelection.value = []
+  refundError.value = ''
+  refundResult.value = null
   verifyError.value = ''
 
   try {
@@ -1518,7 +1620,12 @@ onUnmounted(() => {
             <p>购票人 {{ item.passengers.map((passenger) => passenger.name).join('、') }}</p>
             <small>订单 #{{ item.id }} · 下单于 {{ formatDateTime(item.createdTime) }}</small>
           </div>
-          <strong class="order-amount">{{ formatMoney(item.amountCents) }}</strong>
+          <div class="order-finance">
+            <strong class="order-amount">{{ formatMoney(item.amountCents) }}</strong>
+            <small v-if="item.refundedAmountCents > 0">
+              已退 {{ formatMoney(item.refundedAmountCents) }}
+            </small>
+          </div>
           <div class="order-actions">
             <button
               v-if="item.status === 'PENDING_PAYMENT'"
@@ -1528,15 +1635,24 @@ onUnmounted(() => {
             >
               继续支付
             </button>
-            <button
-              v-else-if="item.status === 'PAID'"
-              type="button"
-              class="secondary-action"
-              :disabled="ticketLookupLoading"
-              @click="viewOrderTickets(item)"
-            >
-              查看电子票
-            </button>
+            <template v-else-if="['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(item.status)">
+              <button
+                type="button"
+                class="secondary-action"
+                :disabled="ticketLookupLoading"
+                @click="viewOrderTickets(item)"
+              >
+                查看电子票
+              </button>
+              <button
+                v-if="item.status === 'REFUNDED'"
+                type="button"
+                class="secondary-action"
+                @click="buyAgain(item)"
+              >
+                重新购买
+              </button>
+            </template>
             <button v-else type="button" class="secondary-action" @click="buyAgain(item)">
               重新购买
             </button>
@@ -1545,12 +1661,31 @@ onUnmounted(() => {
       </div>
 
       <div v-if="issuedTickets.length && order" class="issued-ticket-list ticket-pass-list">
-        <article v-for="issued in issuedTickets" :key="issued.ticketCode" class="ticket-result verified-result ticket-pass">
+        <article
+          v-for="issued in issuedTickets"
+          :key="issued.ticketCode"
+          class="ticket-result ticket-pass"
+          :class="issued.status.toLowerCase()"
+        >
           <div>
             <p class="box-title">{{ currentOrderContext?.event.name ?? '电子票' }}</p>
             <strong>{{ issued.passengerName }} · {{ ticketStatusLabel(issued.status) }}</strong>
             <p>{{ formatDateTime(currentOrderContext?.session.startTime) }} · {{ currentOrderContext?.event.location }}</p>
             <p>{{ passengerDocumentTypeLabel(issued.passengerDocumentType) }}尾号 {{ issued.passengerDocumentLast4 }}</p>
+            <label class="refund-ticket-control" :class="{ disabled: issued.status !== 'VALID' }">
+              <input
+                v-model="refundSelection"
+                type="checkbox"
+                :value="issued.ticketCode"
+                :disabled="issued.status !== 'VALID' || refundLoading"
+              />
+              <span>
+                <strong>{{ issued.status === 'VALID' ? '选择退票' : ticketStatusLabel(issued.status) }}</strong>
+                <small v-if="issued.status === 'VALID'">勾选后在下方核对退款金额</small>
+                <small v-else-if="issued.status === 'VERIFIED'">已核验入场，不能退票</small>
+                <small v-else>票码已失效，不能再次退款</small>
+              </span>
+            </label>
           </div>
           <div class="ticket-code-block">
             <span>独立电子票码</span>
@@ -1558,6 +1693,76 @@ onUnmounted(() => {
           </div>
         </article>
       </div>
+
+      <div v-if="refundResult" class="refund-success" role="status" aria-live="polite">
+        <div>
+          <p class="box-title">
+            {{ refundResult.newlyRefundedQuantity > 0 ? '退票已受理' : '本次未重复退款' }}
+          </p>
+          <strong>
+            {{ refundResult.newlyRefundedQuantity > 0
+              ? `${refundResult.newlyRefundedQuantity} 张电子票已失效`
+              : '所选电子票此前已完成退票' }}
+          </strong>
+          <p>
+            订单 {{ orderStatusLabel(refundResult.order.status) }} · 本次退款
+            {{ formatMoney(refundResult.newlyRefundedAmountCents) }} · 累计已退
+            {{ formatMoney(refundResult.order.refundedAmountCents) }}
+          </p>
+          <small>退款请求 traceId：{{ refundTraceId || '未返回' }}</small>
+        </div>
+        <button
+          v-if="refundResult.order.status === 'REFUNDED'"
+          type="button"
+          class="primary-action"
+          @click="buyAgain(refundResult.order)"
+        >
+          重新购买同票档
+        </button>
+      </div>
+
+      <section
+        v-if="issuedTickets.length && order && ['PAID', 'PARTIALLY_REFUNDED'].includes(order.status)"
+        class="refund-summary"
+        aria-labelledby="refund-summary-title"
+      >
+        <div class="refund-summary-heading">
+          <div>
+            <p class="box-title">退票核对</p>
+            <h3 id="refund-summary-title">确认失效票码与退款金额</h3>
+          </div>
+          <button
+            type="button"
+            class="text-action"
+            :disabled="refundableTickets.length === 0 || refundLoading"
+            @click="refundSelection = selectedRefundTickets.length === refundableTickets.length
+              ? []
+              : refundableTickets.map((issued) => issued.ticketCode)"
+          >
+            {{ selectedRefundTickets.length === refundableTickets.length && refundableTickets.length > 0
+              ? '清空选择'
+              : '选择全部可退' }}
+          </button>
+        </div>
+
+        <div class="refund-breakdown">
+          <div><span>已选电子票</span><strong>{{ selectedRefundTickets.length }} 张</strong></div>
+          <div><span>票面价</span><strong>{{ formatMoney(order.unitPriceCents) }} × {{ selectedRefundTickets.length }}</strong></div>
+          <div><span>退票手续费</span><strong>{{ formatMoney(0) }}</strong></div>
+          <div class="refund-total"><span>预计退款</span><strong>{{ formatMoney(refundPreviewAmount) }}</strong></div>
+        </div>
+
+        <p class="refund-warning">提交后所选票码立即失效，不能再用于验票入场。</p>
+        <button
+          type="button"
+          class="primary-action refund-action"
+          :disabled="refundLoading || selectedRefundTickets.length === 0"
+          @click="refundTickets"
+        >
+          {{ refundLoading ? '退票处理中' : `确认退 ${selectedRefundTickets.length} 张` }}
+        </button>
+      </section>
+      <p v-if="refundError" class="error">{{ refundError }}</p>
 
       <details class="manual-ticket-lookup">
         <summary>使用电子票码查询</summary>

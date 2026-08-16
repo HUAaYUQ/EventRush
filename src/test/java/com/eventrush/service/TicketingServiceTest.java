@@ -92,6 +92,71 @@ class TicketingServiceTest {
     }
 
     @Test
+    void supportsPartialAndFullRefundWithoutDoubleReleasingStock() {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+        TicketOrder order = ticketingService.grabTicket(21L, 101L, 1001L, List.of(
+                passenger("张三", PassengerDocumentType.ID_CARD, "1234"),
+                passenger("李四", PassengerDocumentType.PASSPORT, "8X2P")
+        ));
+        List<ElectronicTicket> tickets = ticketingService.payOrder(order.id());
+
+        var partial = ticketingService.refundTicketsForUser(
+                21L, order.id(), List.of(tickets.get(0).ticketCode()));
+
+        assertThat(partial.newlyRefundedQuantity()).isEqualTo(1);
+        assertThat(partial.newlyRefundedAmountCents()).isEqualTo(19900);
+        assertThat(partial.order().status()).isEqualTo(OrderStatus.PARTIALLY_REFUNDED);
+        assertThat(partial.order().refundedQuantity()).isEqualTo(1);
+        assertThat(partial.order().refundedAmountCents()).isEqualTo(19900);
+        assertThat(partial.tickets()).extracting(ElectronicTicket::status)
+                .containsExactly(TicketStatus.REFUNDED, TicketStatus.VALID);
+        assertThat(catalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(49);
+
+        var repeated = ticketingService.refundTicketsForUser(
+                21L, order.id(), List.of(tickets.get(0).ticketCode()));
+
+        assertThat(repeated.newlyRefundedQuantity()).isZero();
+        assertThat(repeated.newlyRefundedAmountCents()).isZero();
+        assertThat(catalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(49);
+        assertThatThrownBy(() -> ticketingService.grabTicket(21L, 101L, 1001L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("你已有这个票档的有效订单，请前往我的电子票继续处理");
+
+        var full = ticketingService.refundTicketsForUser(
+                21L, order.id(), List.of(tickets.get(1).ticketCode()));
+
+        assertThat(full.order().status()).isEqualTo(OrderStatus.REFUNDED);
+        assertThat(full.order().refundedQuantity()).isEqualTo(2);
+        assertThat(full.order().refundedAmountCents()).isEqualTo(39800);
+        assertThat(full.tickets()).allMatch(ticket -> ticket.status() == TicketStatus.REFUNDED);
+        assertThat(catalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(50);
+        assertThat(ticketingService.grabTicket(21L, 101L, 1001L).status())
+                .isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThatThrownBy(() -> ticketingService.verifyTicket(tickets.get(0).ticketCode(), 99L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("这张电子票已经退票，不能核验入场");
+    }
+
+    @Test
+    void rejectsRefundForVerifiedTicket() {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+        TicketOrder order = ticketingService.grabTicket(22L, 101L, 1001L);
+        ElectronicTicket ticket = ticketingService.payOrder(order.id()).get(0);
+        ticketingService.verifyTicket(ticket.ticketCode(), 99L);
+
+        assertThatThrownBy(() -> ticketingService.refundTicketsForUser(
+                22L, order.id(), List.of(ticket.ticketCode())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("已核验入场的电子票不能退票");
+        assertThat(ticketingService.getOrder(order.id()).status()).isEqualTo(OrderStatus.PAID);
+        assertThat(catalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(49);
+    }
+
+    @Test
     void rejectsDuplicateGrabForSameUserAndTicketCategory() {
         EventCatalogService catalogService = new EventCatalogService();
         catalogService.seedData();

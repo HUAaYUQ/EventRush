@@ -43,7 +43,15 @@ public class RedisTicketStockService {
     }
 
     public void release(Long userId, Long sessionId, Long ticketCategoryId, int quantity) {
+        releaseStock(sessionId, ticketCategoryId, quantity);
+        closeGrab(userId, sessionId, ticketCategoryId);
+    }
+
+    public void releaseStock(Long sessionId, Long ticketCategoryId, int quantity) {
         redisTemplate.opsForValue().increment(stockKey(sessionId, ticketCategoryId), quantity);
+    }
+
+    public void closeGrab(Long userId, Long sessionId, Long ticketCategoryId) {
         redisTemplate.opsForSet().remove(grabbedUsersKey(sessionId, ticketCategoryId), String.valueOf(userId));
     }
 

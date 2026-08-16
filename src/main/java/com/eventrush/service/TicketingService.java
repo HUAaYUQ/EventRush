@@ -6,11 +6,14 @@ import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketCategory;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketPassenger;
+import com.eventrush.domain.TicketRefundResult;
 import com.eventrush.domain.TicketStatus;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -198,7 +201,8 @@ public class TicketingService {
                 .anyMatch(order -> order.userId().equals(userId)
                         && order.sessionId().equals(sessionId)
                         && order.ticketCategoryId().equals(ticketCategoryId)
-                        && order.status() != OrderStatus.CANCELED);
+                        && order.status() != OrderStatus.CANCELED
+                        && order.status() != OrderStatus.REFUNDED);
     }
 
     private TicketOrder createPendingOrder(
@@ -234,9 +238,12 @@ public class TicketingService {
                 unitPriceCents,
                 unitPriceCents * quantity,
                 quantity,
+                0,
+                0,
                 savedPassengers,
                 OrderStatus.PENDING_PAYMENT,
                 createdTime,
+                null,
                 null,
                 null,
                 expireTime
@@ -391,6 +398,7 @@ public class TicketingService {
                 TicketStatus.VALID,
                 generatedTime,
                 null,
+                null,
                 null
         );
         tickets.put(ticket.ticketCode(), ticket);
@@ -421,12 +429,121 @@ public class TicketingService {
             throw new BusinessException("TICKET_ALREADY_VERIFIED", HttpStatus.CONFLICT,
                     "这张电子票已经核验，不能重复入场");
         }
+        if (ticket.status() == TicketStatus.REFUNDED) {
+            throw new BusinessException("TICKET_REFUNDED", HttpStatus.CONFLICT,
+                    "这张电子票已经退票，不能核验入场");
+        }
         if (electronicTicketRepository != null) {
             return electronicTicketRepository.markVerified(ticketCode, verifierId, LocalDateTime.now());
         }
         ElectronicTicket verified = ticket.verify(verifierId, LocalDateTime.now());
         tickets.put(ticketCode, verified);
         return verified;
+    }
+
+    @Transactional
+    public synchronized TicketRefundResult refundTicketsForUser(
+            Long userId,
+            Long orderId,
+            List<String> requestedTicketCodes
+    ) {
+        TicketOrder order = getOrderForUser(userId, orderId);
+        if (order.status() != OrderStatus.PAID
+                && order.status() != OrderStatus.PARTIALLY_REFUNDED
+                && order.status() != OrderStatus.REFUNDED) {
+            throw new BusinessException("ORDER_NOT_REFUNDABLE", HttpStatus.CONFLICT,
+                    "当前订单状态不能退票，请刷新订单后重试");
+        }
+
+        Set<String> ticketCodes = normalizeRefundTicketCodes(requestedTicketCodes);
+        Map<String, ElectronicTicket> orderTickets = getTicketsByOrderId(orderId).stream()
+                .collect(java.util.stream.Collectors.toMap(ElectronicTicket::ticketCode, ticket -> ticket));
+        List<ElectronicTicket> selectedTickets = ticketCodes.stream()
+                .map(ticketCode -> {
+                    ElectronicTicket selected = orderTickets.get(ticketCode);
+                    if (selected == null) {
+                        throw new BusinessException("TICKET_NOT_IN_ORDER", HttpStatus.BAD_REQUEST,
+                                "所选电子票不属于当前订单");
+                    }
+                    return selected;
+                })
+                .toList();
+
+        if (selectedTickets.stream().anyMatch(ticket -> ticket.status() == TicketStatus.VERIFIED)) {
+            throw new BusinessException("TICKET_NOT_REFUNDABLE", HttpStatus.CONFLICT,
+                    "已核验入场的电子票不能退票");
+        }
+        boolean hasValidTicket = selectedTickets.stream()
+                .anyMatch(ticket -> ticket.status() == TicketStatus.VALID);
+        LocalDateTime refundTime = LocalDateTime.now();
+        if (hasValidTicket && !eventCatalogService.getSession(order.sessionId()).startTime().isAfter(refundTime)) {
+            throw new BusinessException("REFUND_WINDOW_CLOSED", HttpStatus.CONFLICT,
+                    "场次已经开始，当前电子票不能在线退票");
+        }
+
+        int newlyRefundedQuantity = 0;
+        for (ElectronicTicket selected : selectedTickets) {
+            if (selected.status() == TicketStatus.REFUNDED) {
+                continue;
+            }
+            if (electronicTicketRepository != null) {
+                if (electronicTicketRepository.markRefunded(selected.ticketCode(), refundTime)) {
+                    newlyRefundedQuantity++;
+                } else if (getTicket(selected.ticketCode()).status() == TicketStatus.VERIFIED) {
+                    throw new BusinessException("TICKET_NOT_REFUNDABLE", HttpStatus.CONFLICT,
+                            "已核验入场的电子票不能退票");
+                }
+            } else {
+                tickets.put(selected.ticketCode(), selected.refund(refundTime));
+                newlyRefundedQuantity++;
+            }
+        }
+
+        long newlyRefundedAmountCents = order.unitPriceCents() * newlyRefundedQuantity;
+        if (newlyRefundedQuantity > 0) {
+            TicketOrder updatedOrder;
+            if (ticketOrderRepository != null) {
+                updatedOrder = ticketOrderRepository.recordRefund(
+                        orderId, newlyRefundedQuantity, newlyRefundedAmountCents, refundTime);
+            } else {
+                updatedOrder = order.refunded(newlyRefundedQuantity, refundTime);
+                orders.put(orderId, updatedOrder);
+            }
+            releaseRefundedStock(updatedOrder, newlyRefundedQuantity);
+        }
+
+        return new TicketRefundResult(
+                getOrder(orderId),
+                getTicketsByOrderId(orderId),
+                newlyRefundedQuantity,
+                newlyRefundedAmountCents
+        );
+    }
+
+    private Set<String> normalizeRefundTicketCodes(List<String> requestedTicketCodes) {
+        if (requestedTicketCodes == null || requestedTicketCodes.isEmpty() || requestedTicketCodes.size() > 5) {
+            throw new BusinessException("INVALID_REFUND_TICKETS", HttpStatus.BAD_REQUEST,
+                    "每次请选择 1 到 5 张电子票");
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String ticketCode : requestedTicketCodes) {
+            if (ticketCode == null || ticketCode.isBlank()) {
+                throw new BusinessException("INVALID_REFUND_TICKETS", HttpStatus.BAD_REQUEST,
+                        "退票请求中不能包含空票码");
+            }
+            normalized.add(ticketCode.trim().toUpperCase());
+        }
+        return normalized;
+    }
+
+    private void releaseRefundedStock(TicketOrder order, int quantity) {
+        eventCatalogService.releaseStock(order.sessionId(), order.ticketCategoryId(), quantity);
+        if (redisStockEnabled && redisTicketStockService != null) {
+            redisTicketStockService.releaseStock(order.sessionId(), order.ticketCategoryId(), quantity);
+            if (order.status() == OrderStatus.REFUNDED) {
+                redisTicketStockService.closeGrab(order.userId(), order.sessionId(), order.ticketCategoryId());
+            }
+        }
     }
 
     @Transactional

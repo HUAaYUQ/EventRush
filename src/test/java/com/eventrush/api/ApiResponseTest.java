@@ -1,8 +1,11 @@
 package com.eventrush.api;
 
 import com.eventrush.domain.ElectronicTicket;
+import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
 import com.eventrush.service.TicketingService;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -197,6 +200,44 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.data.orderId").value(order.id()));
 
         mockMvc.perform(get("/api/users/9811/tickets/%s".formatted(ticket.ticketCode())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+    }
+
+    @Test
+    void userCanPartiallyRefundOwnOrder() throws Exception {
+        TicketOrder order = ticketingService.grabTicket(9812L, 101L, 1001L, List.of(
+                new TicketPassenger(null, null, 0, "王芳", PassengerDocumentType.ID_CARD, "1234"),
+                new TicketPassenger(null, null, 0, "赵强", PassengerDocumentType.PASSPORT, "8X2P")
+        ));
+        List<ElectronicTicket> tickets = ticketingService.payOrder(order.id());
+        String content = """
+                {"ticketCodes":["%s"]}
+                """.formatted(tickets.get(0).ticketCode());
+
+        mockMvc.perform(post("/api/users/9812/orders/%s/refunds".formatted(order.id()))
+                        .header("X-Trace-Id", "trace-refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(content))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Trace-Id", "trace-refund"))
+                .andExpect(jsonPath("$.data.newlyRefundedQuantity").value(1))
+                .andExpect(jsonPath("$.data.newlyRefundedAmountCents").value(19900))
+                .andExpect(jsonPath("$.data.order.status").value("PARTIALLY_REFUNDED"))
+                .andExpect(jsonPath("$.data.order.refundedQuantity").value(1))
+                .andExpect(jsonPath("$.data.tickets[0].status").value("REFUNDED"))
+                .andExpect(jsonPath("$.data.tickets[1].status").value("VALID"));
+
+        mockMvc.perform(post("/api/users/9812/orders/%s/refunds".formatted(order.id()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(content))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.newlyRefundedQuantity").value(0))
+                .andExpect(jsonPath("$.data.order.refundedAmountCents").value(19900));
+
+        mockMvc.perform(post("/api/users/9813/orders/%s/refunds".formatted(order.id()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(content))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
