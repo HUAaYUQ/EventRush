@@ -66,3 +66,36 @@ CREATE TABLE IF NOT EXISTS async_grab_request (
     KEY idx_async_grab_status (request_status, updated_time),
     KEY idx_async_grab_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ticket_waitlist (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    event_id BIGINT NOT NULL,
+    session_id BIGINT NOT NULL,
+    ticket_category_id BIGINT NOT NULL,
+    unit_price_cents BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    active_waitlist_key VARCHAR(96) NULL,
+    waitlist_status VARCHAR(32) NOT NULL,
+    order_id BIGINT NULL,
+    created_time DATETIME NOT NULL,
+    updated_time DATETIME NOT NULL,
+    fulfilled_time DATETIME NULL,
+    canceled_time DATETIME NULL,
+    expired_time DATETIME NULL,
+    payment_expire_time DATETIME NULL,
+    UNIQUE KEY uk_ticket_waitlist_active (active_waitlist_key),
+    KEY idx_ticket_waitlist_queue (session_id, ticket_category_id, waitlist_status, created_time, id),
+    KEY idx_ticket_waitlist_user (user_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ticket_waitlist_passenger (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    waitlist_id BIGINT NOT NULL,
+    passenger_sequence INT NOT NULL,
+    passenger_name VARCHAR(64) NOT NULL,
+    passenger_document_type VARCHAR(32) NOT NULL,
+    passenger_document_last4 VARCHAR(4) NOT NULL,
+    UNIQUE KEY uk_ticket_waitlist_passenger_sequence (waitlist_id, passenger_sequence),
+    KEY idx_ticket_waitlist_passenger_waitlist (waitlist_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

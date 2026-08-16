@@ -8,6 +8,7 @@ import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketPassenger;
 import com.eventrush.domain.TicketRefundResult;
 import com.eventrush.domain.TicketStatus;
+import com.eventrush.domain.TicketWaitlistRequest;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -26,6 +27,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class TicketingService {
@@ -48,6 +51,7 @@ public class TicketingService {
     private final int grabRateLimitWindowSeconds;
     private final RedisTicketStockService redisTicketStockService;
     private final ObjectProvider<OrderTimeoutMessagePublisher> orderTimeoutMessagePublisher;
+    private final ObjectProvider<TicketWaitlistService> ticketWaitlistService;
 
     @Autowired
     public TicketingService(
@@ -61,7 +65,8 @@ public class TicketingService {
             @Value("${eventrush.rate-limit.grab-limit:3}") int grabRateLimit,
             @Value("${eventrush.rate-limit.grab-window-seconds:10}") int grabRateLimitWindowSeconds,
             ObjectProvider<RedisTicketStockService> redisTicketStockService,
-            ObjectProvider<OrderTimeoutMessagePublisher> orderTimeoutMessagePublisher
+            ObjectProvider<OrderTimeoutMessagePublisher> orderTimeoutMessagePublisher,
+            ObjectProvider<TicketWaitlistService> ticketWaitlistService
     ) {
         this.eventCatalogService = eventCatalogService;
         this.ticketOrderRepository = ticketOrderRepository;
@@ -74,6 +79,7 @@ public class TicketingService {
         this.grabRateLimitWindowSeconds = grabRateLimitWindowSeconds;
         this.redisTicketStockService = redisTicketStockService.getIfAvailable();
         this.orderTimeoutMessagePublisher = orderTimeoutMessagePublisher;
+        this.ticketWaitlistService = ticketWaitlistService;
     }
 
     public TicketingService(EventCatalogService eventCatalogService) {
@@ -88,6 +94,7 @@ public class TicketingService {
         this.grabRateLimitWindowSeconds = 10;
         this.redisTicketStockService = null;
         this.orderTimeoutMessagePublisher = null;
+        this.ticketWaitlistService = null;
     }
 
     @PostConstruct
@@ -149,6 +156,10 @@ public class TicketingService {
         int quantity = passengers.size();
         checkGrabRateLimit(userId);
         TicketCategory ticketCategory = eventCatalogService.getTicketCategory(sessionId, ticketCategoryId);
+        if (hasWaitingQueue(sessionId, ticketCategoryId)) {
+            throw new BusinessException("WAITLIST_QUEUE_ACTIVE", HttpStatus.CONFLICT,
+                    "该票档正在按候补顺序分配，请加入候补队列");
+        }
         if (hasGrabbed(userId, sessionId, ticketCategoryId)) {
             throw new BusinessException("DUPLICATE_GRAB", HttpStatus.CONFLICT,
                     "你已有这个票档的有效订单，请前往我的电子票继续处理");
@@ -205,6 +216,18 @@ public class TicketingService {
                         && order.status() != OrderStatus.REFUNDED);
     }
 
+    public boolean hasActiveOrder(Long userId, Long sessionId, Long ticketCategoryId) {
+        return hasGrabbed(userId, sessionId, ticketCategoryId);
+    }
+
+    private boolean hasWaitingQueue(Long sessionId, Long ticketCategoryId) {
+        if (ticketWaitlistService == null) {
+            return false;
+        }
+        TicketWaitlistService service = ticketWaitlistService.getIfAvailable();
+        return service != null && service.hasWaiting(sessionId, ticketCategoryId);
+    }
+
     private TicketOrder createPendingOrder(
             Long userId,
             Long eventId,
@@ -252,6 +275,10 @@ public class TicketingService {
         return order;
     }
 
+    public List<TicketPassenger> normalizePassengers(List<TicketPassenger> requestedPassengers) {
+        return validatePassengers(requestedPassengers);
+    }
+
     private List<TicketPassenger> validatePassengers(List<TicketPassenger> requestedPassengers) {
         if (requestedPassengers == null || requestedPassengers.isEmpty() || requestedPassengers.size() > 5) {
             throw new BusinessException("INVALID_PASSENGER_COUNT", HttpStatus.BAD_REQUEST,
@@ -260,6 +287,51 @@ public class TicketingService {
         return IntStream.range(0, requestedPassengers.size())
                 .mapToObj(index -> validatePassenger(requestedPassengers.get(index), index + 1))
                 .toList();
+    }
+
+    @Transactional
+    public synchronized TicketOrder createOrderFromWaitlist(TicketWaitlistRequest request) {
+        if (hasGrabbed(request.userId(), request.sessionId(), request.ticketCategoryId())) {
+            throw new BusinessException("DUPLICATE_GRAB", HttpStatus.CONFLICT,
+                    "你已有这个票档的有效订单，请前往我的电子票继续处理");
+        }
+        boolean redisDeducted = false;
+        boolean catalogDeducted = false;
+        try {
+            if (redisStockEnabled) {
+                deductRedisStock(request.userId(), request.sessionId(), request.ticketCategoryId(), request.quantity());
+                redisDeducted = true;
+            }
+            eventCatalogService.deductStock(request.sessionId(), request.ticketCategoryId(), request.quantity());
+            catalogDeducted = true;
+            LocalDateTime now = LocalDateTime.now();
+            TicketOrder order = createPendingOrder(
+                    request.userId(), request.eventId(), request.sessionId(), request.ticketCategoryId(),
+                    request.unitPriceCents(), request.passengers(), now, now.plusSeconds(orderExpireSeconds));
+            publishOrderTimeout(order);
+            return order;
+        } catch (RuntimeException exception) {
+            compensateWaitlistDeduction(request, catalogDeducted, redisDeducted);
+            throw exception;
+        }
+    }
+
+    public synchronized void compensateWaitlistOrderCreation(TicketWaitlistRequest request) {
+        compensateWaitlistDeduction(request, true, redisStockEnabled);
+    }
+
+    private void compensateWaitlistDeduction(
+            TicketWaitlistRequest request,
+            boolean catalogDeducted,
+            boolean redisDeducted
+    ) {
+        if (catalogDeducted) {
+            eventCatalogService.releaseStock(request.sessionId(), request.ticketCategoryId(), request.quantity());
+        }
+        if (redisDeducted && redisTicketStockService != null) {
+            redisTicketStockService.release(
+                    request.userId(), request.sessionId(), request.ticketCategoryId(), request.quantity());
+        }
     }
 
     private TicketPassenger validatePassenger(TicketPassenger passenger, int sequence) {
@@ -544,6 +616,7 @@ public class TicketingService {
                 redisTicketStockService.closeGrab(order.userId(), order.sessionId(), order.ticketCategoryId());
             }
         }
+        notifyReleasedStock(order.sessionId(), order.ticketCategoryId());
     }
 
     @Transactional
@@ -596,6 +669,32 @@ public class TicketingService {
         if (redisStockEnabled && redisTicketStockService != null) {
             redisTicketStockService.release(
                     order.userId(), order.sessionId(), order.ticketCategoryId(), order.quantity());
+        }
+        notifyReleasedStock(order.sessionId(), order.ticketCategoryId());
+    }
+
+    private void notifyReleasedStock(Long sessionId, Long ticketCategoryId) {
+        if (ticketWaitlistService == null) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    fulfillReleasedStock(sessionId, ticketCategoryId);
+                }
+            });
+            return;
+        }
+        fulfillReleasedStock(sessionId, ticketCategoryId);
+    }
+
+    private void fulfillReleasedStock(Long sessionId, Long ticketCategoryId) {
+        try {
+            ticketWaitlistService.ifAvailable(service -> service.fulfillAvailable(sessionId, ticketCategoryId));
+        } catch (RuntimeException exception) {
+            log.warn("waitlist fulfillment failed after stock release, sessionId={}, ticketCategoryId={}",
+                    sessionId, ticketCategoryId, exception);
         }
     }
 

@@ -8,3 +8,4 @@ data/
 *.mv.db
 frontend/node_modules/
 frontend/dist/
+.finesse/

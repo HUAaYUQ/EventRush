@@ -29,6 +29,13 @@ const refundResult = ref(null)
 const myOrders = ref([])
 const myOrdersLoading = ref(false)
 const myOrdersError = ref('')
+const myWaitlists = ref([])
+const myWaitlistsLoading = ref(false)
+const myWaitlistsError = ref('')
+const waitlistResult = ref(null)
+const waitlistTraceId = ref('')
+const waitlistActionId = ref(null)
+const forcedWaitlistTicketKey = ref('')
 const ticketLookupCode = ref('')
 const ticketLookupLoading = ref(false)
 const ticketLookupError = ref('')
@@ -138,6 +145,11 @@ const passengerProfilesValid = computed(
 )
 const orderPreviewAmount = computed(
   () => (selectedTicket.value?.category.priceCents ?? 0) * passengers.value.length,
+)
+const selectedTicketNeedsWaitlist = computed(
+  () => Boolean(selectedTicket.value)
+    && (selectedTicket.value.category.remainingStock < passengers.value.length
+      || forcedWaitlistTicketKey.value === selectedTicket.value.key),
 )
 const passengerChecks = computed(() => [
   {
@@ -501,6 +513,15 @@ function orderStatusLabel(status) {
   }[status] ?? status
 }
 
+function waitlistStatusLabel(status) {
+  return {
+    WAITING: '排队中',
+    FULFILLED: '已兑现',
+    CANCELED: '已取消',
+    EXPIRED: '已过期',
+  }[status] ?? status
+}
+
 function ticketStatusLabel(status) {
   return {
     VALID: '待入场',
@@ -630,6 +651,8 @@ function selectTicket(sessionId, ticketCategoryId) {
   verifyError.value = ''
   adminError.value = ''
   orderReviewReady.value = false
+  waitlistResult.value = null
+  waitlistTraceId.value = ''
 }
 
 function selectFirstTicketIfNeeded() {
@@ -686,6 +709,31 @@ async function loadMyOrders() {
   } finally {
     myOrdersLoading.value = false
   }
+}
+
+async function loadMyWaitlists() {
+  myWaitlistsLoading.value = true
+  myWaitlistsError.value = ''
+
+  try {
+    const { payload } = await requestJson(
+      '加载我的候补',
+      'GET',
+      `/api/users/${userId.value}/waitlists`,
+      {},
+      (data) => `候补 ${data?.length ?? 0} 条`,
+    )
+    myWaitlists.value = payload.data ?? []
+  } catch (caught) {
+    myWaitlists.value = []
+    myWaitlistsError.value = caught instanceof Error ? caught.message : '候补列表加载失败'
+  } finally {
+    myWaitlistsLoading.value = false
+  }
+}
+
+async function refreshMyTickets() {
+  await Promise.all([loadMyOrders(), loadMyWaitlists()])
 }
 
 function resetRefundState() {
@@ -754,9 +802,16 @@ async function grabTicket() {
     return
   }
 
+  if (selectedTicketNeedsWaitlist.value) {
+    await joinWaitlist()
+    return
+  }
+
   grabLoading.value = true
   grabError.value = ''
   grabTraceId.value = ''
+  waitlistResult.value = null
+  waitlistTraceId.value = ''
   order.value = null
   ticket.value = null
   issuedTickets.value = []
@@ -800,15 +855,104 @@ async function grabTicket() {
     order.value = payload.data
     orderReviewReady.value = false
     await loadEvents()
-    await loadMyOrders()
+    await refreshMyTickets()
   } catch (caught) {
     grabError.value = caught instanceof Error ? caught.message : '抢票失败'
+    if (caught instanceof ApiRequestError && caught.code === 'WAITLIST_QUEUE_ACTIVE') {
+      forcedWaitlistTicketKey.value = selectedTicket.value?.key ?? ''
+      grabError.value = '该票档已有候补队列，已切换为候补核对，请确认后加入队列'
+    }
     if (caught instanceof ApiRequestError && caught.code === 'DUPLICATE_GRAB') {
       await loadMyOrders()
       activeView.value = 'tickets'
     }
   } finally {
     grabLoading.value = false
+  }
+}
+
+async function joinWaitlist() {
+  grabLoading.value = true
+  grabError.value = ''
+  waitlistResult.value = null
+  waitlistTraceId.value = ''
+
+  try {
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '提交候补',
+      'POST',
+      `/api/users/${userId.value}/waitlists`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: selectedSessionId.value,
+          ticketCategoryId: selectedTicketCategoryId.value,
+          passengers: normalizedPassengers.value.map((passenger) => ({
+            name: passenger.name,
+            documentType: passenger.documentType,
+            documentLast4: passenger.documentLast4,
+          })),
+        }),
+      },
+      (data) => `waitlistId=${data.id} ${data.status}`,
+    )
+    waitlistResult.value = payload.data
+    waitlistTraceId.value = nextTraceId
+    forcedWaitlistTicketKey.value = ''
+    order.value = null
+    orderReviewReady.value = false
+    await Promise.all([loadEvents(), loadMyWaitlists()])
+  } catch (caught) {
+    grabError.value = caught instanceof Error ? caught.message : '候补提交失败'
+    if (caught instanceof ApiRequestError && caught.code === 'DUPLICATE_WAITLIST') {
+      await loadMyWaitlists()
+      activeView.value = 'tickets'
+    }
+  } finally {
+    grabLoading.value = false
+  }
+}
+
+async function cancelWaitlist(waitlist) {
+  if (!window.confirm(`确认取消候补 #${waitlist.id} 吗？取消后将退出当前队列。`)) {
+    return
+  }
+  waitlistActionId.value = waitlist.id
+  myWaitlistsError.value = ''
+  try {
+    await requestJson(
+      '取消候补',
+      'DELETE',
+      `/api/users/${userId.value}/waitlists/${waitlist.id}`,
+      {},
+      (data) => `waitlistId=${data.id} ${data.status}`,
+    )
+    await loadMyWaitlists()
+  } catch (caught) {
+    myWaitlistsError.value = caught instanceof Error ? caught.message : '取消候补失败'
+  } finally {
+    waitlistActionId.value = null
+  }
+}
+
+async function continueWaitlistPayment(waitlist) {
+  waitlistActionId.value = waitlist.id
+  myWaitlistsError.value = ''
+  try {
+    const { payload } = await requestJson(
+      '打开候补兑现订单',
+      'GET',
+      `/api/users/${userId.value}/orders/${waitlist.orderId}`,
+      {},
+      (data) => `orderId=${data.id} ${data.status}`,
+    )
+    continuePayment(payload.data)
+  } catch (caught) {
+    myWaitlistsError.value = caught instanceof Error ? caught.message : '兑现订单加载失败'
+  } finally {
+    waitlistActionId.value = null
   }
 }
 
@@ -946,7 +1090,7 @@ async function payOrder() {
     payError.value = caught instanceof Error ? caught.message : '支付失败'
     if (caught instanceof ApiRequestError && caught.code === 'ORDER_EXPIRED') {
       await refreshOrder(order.value.id)
-      await Promise.all([loadEvents(), loadMyOrders()])
+      await Promise.all([loadEvents(), refreshMyTickets()])
     }
   } finally {
     payLoading.value = false
@@ -999,7 +1143,7 @@ async function refundTickets() {
       ?? null
     ticketLookupCode.value = ticket.value?.ticketCode ?? ''
     refundSelection.value = []
-    await Promise.all([loadMyOrders(), loadEvents()])
+    await Promise.all([refreshMyTickets(), loadEvents()])
   } catch (caught) {
     refundError.value = caught instanceof Error ? caught.message : '退票失败'
   } finally {
@@ -1113,7 +1257,7 @@ async function copyTraceId(nextTraceId) {
 
 watch(activeView, (nextView) => {
   if (nextView === 'tickets') {
-    loadMyOrders()
+    refreshMyTickets()
   }
 })
 
@@ -1126,7 +1270,7 @@ watch(remainingPaymentSeconds, (seconds, previousSeconds) => {
   expirySyncTimer = window.setTimeout(async () => {
     try {
       await refreshOrder(order.value.id)
-      await Promise.all([loadEvents(), loadMyOrders()])
+      await Promise.all([loadEvents(), refreshMyTickets()])
     } catch (caught) {
       payError.value = caught instanceof Error ? caught.message : '订单状态同步失败'
     }
@@ -1137,7 +1281,7 @@ onMounted(async () => {
   clockTimer = window.setInterval(() => {
     now.value = Date.now()
   }, 1000)
-  await Promise.all([loadEvents(), loadMyOrders()])
+  await Promise.all([loadEvents(), loadMyOrders(), loadMyWaitlists()])
 })
 
 onUnmounted(() => {
@@ -1316,12 +1460,13 @@ onUnmounted(() => {
                     selected:
                       selectedSessionId === session.id &&
                       selectedTicketCategoryId === category.id,
+                    'sold-out': category.remainingStock === 0,
                   }"
                   @click="selectTicket(session.id, category.id)"
                 >
                   <span>{{ category.name }}</span>
                   <strong>{{ formatMoney(category.priceCents) }}</strong>
-                  <small>余 {{ category.remainingStock }}</small>
+                  <small>{{ category.remainingStock > 0 ? `余 ${category.remainingStock}` : '可候补' }}</small>
                 </button>
               </div>
             </div>
@@ -1440,7 +1585,7 @@ onUnmounted(() => {
             class="primary-action"
             @click="prepareOrderReview"
           >
-            核对订单
+            {{ selectedTicketNeedsWaitlist ? '核对候补' : '核对订单' }}
           </button>
           <div v-else class="review-ready-message">
             <strong>购票信息已进入核对状态</strong>
@@ -1452,8 +1597,12 @@ onUnmounted(() => {
           <div class="workflow-step-heading">
             <span>2</span>
             <div>
-              <strong>订单核对</strong>
-              <p>{{ orderReviewReady ? '信息完整，可以提交订单。' : '完成左侧信息后再提交。' }}</p>
+              <strong>{{ selectedTicketNeedsWaitlist ? '候补核对' : '订单核对' }}</strong>
+              <p>
+                {{ orderReviewReady
+                  ? (selectedTicketNeedsWaitlist ? '信息完整，可以加入候补队列。' : '信息完整，可以提交订单。')
+                  : '完成左侧信息后再提交。' }}
+              </p>
             </div>
           </div>
 
@@ -1500,9 +1649,14 @@ onUnmounted(() => {
           </div>
 
           <div class="receipt-total">
-            <span>应付合计</span>
+            <span>{{ selectedTicketNeedsWaitlist ? '兑现后应付' : '应付合计' }}</span>
             <strong>{{ formatMoney(orderPreviewAmount) }}</strong>
             <small>票价 {{ formatMoney(selectedTicket?.category.priceCents) }} × {{ passengers.length }} 张</small>
+          </div>
+
+          <div v-if="selectedTicketNeedsWaitlist" class="waitlist-notice" role="note">
+            <strong>候补成功不等于出票</strong>
+            <p>库存释放后按提交顺序整单兑现，不拆分购票人；兑现后仍需在截止时间前完成支付。</p>
           </div>
 
           <button
@@ -1512,12 +1666,24 @@ onUnmounted(() => {
             :disabled="grabLoading"
             @click="grabTicket"
           >
-            {{ grabLoading ? '提交中' : '确认购票' }}
+            {{ grabLoading ? '提交中' : (selectedTicketNeedsWaitlist ? '加入候补' : '确认购票') }}
           </button>
         </aside>
       </div>
 
       <p v-if="grabError" class="error">{{ grabError }}</p>
+      <div v-if="waitlistResult" class="waitlist-success" role="status" aria-live="polite">
+        <div>
+          <p class="box-title">候补已提交</p>
+          <strong>#{{ waitlistResult.id }} · {{ waitlistStatusLabel(waitlistResult.status) }}</strong>
+          <p>
+            {{ waitlistResult.quantity }} 位购票人整单排队 · 前方
+            {{ waitlistResult.waitingAhead }} 笔候补 · 兑现后应付 {{ formatMoney(waitlistResult.unitPriceCents * waitlistResult.quantity) }}
+          </p>
+          <small>本次候补 traceId：{{ waitlistTraceId || '未返回' }}</small>
+        </div>
+        <button type="button" class="primary-action" @click="activeView = 'tickets'">查看我的候补</button>
+      </div>
       <div v-if="order" class="order-result">
         <p class="box-title">订单已创建</p>
         <div class="result-grid">
@@ -1592,10 +1758,81 @@ onUnmounted(() => {
           <h2>我的订单与电子票</h2>
           <p class="event-meta">本机演示用户 #{{ userId }}，刷新页面后仍可找回。</p>
         </div>
-        <button type="button" class="secondary-action" :disabled="myOrdersLoading" @click="loadMyOrders">
-          {{ myOrdersLoading ? '刷新中' : '刷新订单' }}
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="myOrdersLoading || myWaitlistsLoading"
+          @click="refreshMyTickets"
+        >
+          {{ myOrdersLoading || myWaitlistsLoading ? '刷新中' : '刷新状态' }}
         </button>
       </div>
+
+      <section class="waitlist-section" aria-labelledby="my-waitlist-title">
+        <div class="section-heading-row">
+          <div>
+            <h3 id="my-waitlist-title">我的候补</h3>
+            <p>库存释放后按顺序整单兑现，兑现后会生成一笔限时支付订单。</p>
+          </div>
+          <span>{{ myWaitlists.length }} 条</span>
+        </div>
+        <p v-if="myWaitlistsError" class="error">{{ myWaitlistsError }}</p>
+        <div v-if="myWaitlistsLoading && myWaitlists.length === 0" class="order-skeleton" aria-label="正在加载候补">
+          <span></span><span></span>
+        </div>
+        <div v-else-if="myWaitlists.length === 0" class="waitlist-empty">
+          当前没有候补记录。票档库存不足时，可在车票预订中提交候补。
+        </div>
+        <div v-else class="waitlist-list">
+          <article
+            v-for="item in myWaitlists"
+            :key="item.id"
+            class="waitlist-row"
+            :class="item.status.toLowerCase()"
+          >
+            <div class="waitlist-main">
+              <div class="order-heading">
+                <strong>{{ getOrderContext(item)?.event.name ?? `候补 #${item.id}` }}</strong>
+                <span class="waitlist-status" :class="item.status.toLowerCase()">
+                  {{ waitlistStatusLabel(item.status) }}
+                </span>
+              </div>
+              <p>
+                {{ formatDateTime(getOrderContext(item)?.session.startTime) }} ·
+                {{ getOrderContext(item)?.category.name ?? `票档 ${item.ticketCategoryId}` }} · {{ item.quantity }} 张
+              </p>
+              <p>购票人 {{ item.passengers.map((passenger) => passenger.name).join('、') }}</p>
+              <small v-if="item.status === 'WAITING'">前方 {{ item.waitingAhead }} 笔候补 · 提交于 {{ formatDateTime(item.createdTime) }}</small>
+              <small v-else-if="item.status === 'FULFILLED'">订单 #{{ item.orderId }} · 请在 {{ formatDateTime(item.paymentExpireTime) }} 前支付</small>
+              <small v-else>{{ formatDateTime(item.updatedTime) }} 更新</small>
+            </div>
+            <div class="waitlist-amount">
+              <span>兑现后应付</span>
+              <strong>{{ formatMoney(item.unitPriceCents * item.quantity) }}</strong>
+            </div>
+            <div class="order-actions">
+              <button
+                v-if="item.status === 'WAITING'"
+                type="button"
+                class="secondary-action"
+                :disabled="waitlistActionId === item.id"
+                @click="cancelWaitlist(item)"
+              >
+                {{ waitlistActionId === item.id ? '处理中' : '取消候补' }}
+              </button>
+              <button
+                v-else-if="item.status === 'FULFILLED'"
+                type="button"
+                class="primary-action"
+                :disabled="waitlistActionId === item.id"
+                @click="continueWaitlistPayment(item)"
+              >
+                {{ waitlistActionId === item.id ? '打开中' : '查看待支付订单' }}
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
 
       <p v-if="myOrdersError" class="error">{{ myOrdersError }}</p>
       <div v-if="myOrdersLoading && myOrders.length === 0" class="order-skeleton" aria-label="正在加载订单">

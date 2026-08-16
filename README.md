@@ -25,6 +25,7 @@ EventRush 是一个面向高并发活动票务场景的 Java 后端项目，模�
 15. 下单前核对购票人、票档、数量和金额，订单只保存证件类型与证件后四位。
 16. 一笔订单支持 1 到 5 位购票人，按人数扣减库存，并为每位购票人生成独立票码和验票状态。
 17. 支付后支持按单张电子票部分退票或整单退票，退款幂等、库存按实际退票数恢复，已验票凭证不可退。
+18. 票档库存不足时支持 1 到 5 人整单候补，退款或超时取消释放库存后按先来先得顺序兑现，并生成限时支付订单。
 
 ## 技术栈
 
@@ -273,6 +274,12 @@ docs/stage-43-acceptance.md
 docs/stage-49-acceptance.md
 ```
 
+售罄候补购票验收：
+
+```text
+docs/stage-50-acceptance.md
+```
+
 项目阶段总览：
 
 ```text
@@ -294,8 +301,9 @@ requests/stage-18.http
 4. 查询订单详情，确认状态为 `PAID`。
 5. 查询电子票，确认状态为 `VALID`。
 6. 可选择一张 `VALID` 电子票退票，确认该票变为 `REFUNDED`、库存只恢复 1。
-7. 或调用验票接口，确认对应电子票状态变为 `VERIFIED`。
-8. 携带 `X-Admin-Key` 调用管理端接口做后台查询。
+7. 售罄时可提交候补，确认状态为 `WAITING`；库存释放足够后确认变为 `FULFILLED` 并拿到待支付 `orderId`。
+8. 或调用验票接口，确认对应电子票状态变为 `VERIFIED`。
+9. 携带 `X-Admin-Key` 调用管理端接口做后台查询。
 
 ## 重要目录
 
@@ -346,6 +354,7 @@ docs/stage-1-acceptance.md
 docs/stage-2-acceptance.md
 ...
 docs/stage-49-acceptance.md
+docs/stage-50-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

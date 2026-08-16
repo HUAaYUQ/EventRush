@@ -173,6 +173,55 @@ Content-Type: application/json
 
 每笔订单支持 1 到 5 位购票人。库存按人数扣减，订单金额等于票档单价乘以人数。
 
+如果票档已经存在等待中的候补，普通购票返回 `WAITLIST_QUEUE_ACTIVE`，避免后来请求绕过队首直接占用零散库存。
+
+### 提交候补
+
+```http
+POST /api/users/{userId}/waitlists
+Content-Type: application/json
+
+{
+  "sessionId": 101,
+  "ticketCategoryId": 1002,
+  "passengers": [
+    {
+      "name": "张三",
+      "documentType": "ID_CARD",
+      "documentLast4": "1234"
+    }
+  ]
+}
+```
+
+只有当前库存不足以覆盖全部购票人，或该票档已经存在等待队列时才能提交。候补人数为 1 到 5 人，同一用户、场次和票档只能有一个 `WAITING` 候补。
+
+成功返回 `TicketWaitlistRequest`。初始状态为 `WAITING`，`waitingAhead` 表示前方等待笔数。候补按创建时间和 id 先来先得，只在库存能覆盖整组购票人时兑现，不拆单，也不跳过队首满足后来的小单。
+
+### 查询用户候补
+
+```http
+GET /api/users/{userId}/waitlists
+GET /api/users/{userId}/waitlists/{waitlistId}
+```
+
+状态包括：
+
+- `WAITING`：等待库存释放。
+- `FULFILLED`：已兑现为 `PENDING_PAYMENT` 订单，响应包含 `orderId` 和 `paymentExpireTime`。
+- `CANCELED`：用户已主动取消。
+- `EXPIRED`：场次开始后仍未兑现，或候补资格已失效。
+
+查询和取消都校验用户归属，不匹配时统一返回 `WAITLIST_NOT_FOUND`。
+
+### 取消候补
+
+```http
+DELETE /api/users/{userId}/waitlists/{waitlistId}
+```
+
+只有 `WAITING` 候补可以取消。退款和订单超时取消释放库存后，系统在原事务提交后触发候补兑现；候补异常不会回滚已经完成的退款或取消。
+
 ### 异步抢票
 
 ```http
@@ -342,7 +391,9 @@ X-Admin-Key: eventrush-admin-key
 6. 选择其中一张票调用退票接口，确认订单变为 `PARTIALLY_REFUNDED`、该票变为 `REFUNDED`，另一张仍为 `VALID`。
 7. 重复提交同一票码，确认新增退款数量和金额都为 `0`。
 8. 对剩余 `VALID` 票可继续验票，或全部退完后确认订单为 `REFUNDED` 并可重新购买。
-9. 携带 `X-Admin-Key` 调用管理端接口，确认能按用户、订单、票码查询数据。
+9. 把票档抢至售罄，依次提交两笔候补，确认 `waitingAhead` 按顺序变化。
+10. 退票或等待订单超时释放库存，确认队首只有在库存覆盖整组人数时才变为 `FULFILLED`，并拿到待支付 `orderId`。
+11. 携带 `X-Admin-Key` 调用管理端接口，确认能按用户、订单、票码查询数据。
 
 ## 你需要学会的点
 

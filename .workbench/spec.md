@@ -2,7 +2,7 @@
 name: EventRush 票务产品与工程证据台
 domain: system
 subject: 票务订单
-purpose: 让用户先像真实票务产品一样完成预订、支付、退票和验票；让学习者和面试展示者在独立入口里查看排查、压测和 traceId 证据。
+purpose: 让用户先像真实票务产品一样完成预订、候补、支付、退票和验票；让学习者和面试展示者在独立入口里查看排查、压测和 traceId 证据。
 surface: desktop
 structure: { primary: ticket_product, secondary: evidence_console }
 moment: 每次阶段验收或面试演示前
@@ -29,8 +29,8 @@ cold_start:
   re_entry: 距上次验收已经隔了一段时间，直接重新跑一条新链路，不需要补旧数据。
 
 home:
-  - 车票预订：活动票档选择、1 到 5 位购票人脱敏信息、订单核对、提交订单、逐人出票
-  - 我的电子票：订单恢复、每位购票人的独立 ticketCode、验票状态和按票退票
+  - 车票预订：活动票档选择、1 到 5 位购票人脱敏信息、订单或候补核对、提交订单、逐人出票
+  - 我的电子票：候补进度与兑现订单、订单恢复、每位购票人的独立 ticketCode、验票状态和按票退票
   - 验票入口：票码输入、验票员 ID、入场核验结果
   - 工程证据：hook、本轮验收摘要、最近请求记录、压测证据、管理排查
 
@@ -43,10 +43,10 @@ channels:
   - name: 票务链路
     type: today
     weight: primary
-    does: 选择票档、抢票、支付、查票、按票退票或验票，把订单从创建走到售后或入场核验
+    does: 选择票档、直购或候补、支付、查票、按票退票或验票，把需求从排队走到订单、售后或入场核验
     pages:
-      - { level: L1, shows: 操作流，按活动票档 -> 抢票 -> 支付 -> 电子票 -> 退票或验票排列, actions: [加载活动, 同步抢票, 支付出票, 查询电子票, 提交退票, 验票入场] }
-      - { level: L2, shows: 单个订单详情、逐人电子票和退款金额核对, actions: [刷新订单, 选择退票票码, 复制 ticketCode] }
+      - { level: L1, shows: 操作流，按活动票档 -> 直购或候补 -> 支付 -> 电子票 -> 退票或验票排列, actions: [加载活动, 同步抢票, 提交候补, 支付出票, 查询电子票, 提交退票, 验票入场] }
+      - { level: L2, shows: 候补进度与兑现订单、单个订单详情、逐人电子票和退款金额核对, actions: [刷新候补, 取消候补, 打开兑现订单, 刷新订单, 选择退票票码, 复制 ticketCode] }
   - name: 验票
     type: record
     weight: regular
@@ -96,6 +96,10 @@ entities:
     fields: [id, user_id, session_id, ticket_category_id, quantity, unit_price_cents, amount_cents, refunded_quantity, refunded_amount_cents, status, refund_time, expire_time]
     written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, quantity: system, unit_price_cents: system, amount_cents: system, status: system, expire_time: system }
     relations: [TicketOrder 1-n TicketPassenger, TicketOrder 1-n ElectronicTicket]
+  - name: TicketWaitlistRequest
+    fields: [id, user_id, session_id, ticket_category_id, quantity, status, waiting_ahead, order_id, payment_expire_time]
+    written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, quantity: system, status: system, waiting_ahead: system, order_id: system, payment_expire_time: system }
+    relations: [TicketWaitlistRequest n-1 TicketCategory, TicketWaitlistRequest 1-n TicketPassenger, TicketWaitlistRequest 0-1 TicketOrder]
   - name: TicketPassenger
     fields: [id, order_id, sequence, name, document_type, document_last4]
     written_by: { id: system, order_id: system, sequence: system, name: user, document_type: user, document_last4: user }
@@ -116,7 +120,7 @@ entities:
 depends_on:
   - { field: 压测历史自动采集, source: 后端压测报告接口, exists_today: false, until_then: 前端保留手动录入，不在首屏伪造历史趋势 }
 
-mvp: [票务链路, 验票, 管理排查, 请求记录, 压测证据]
+mvp: [票务链路, 候补购票, 验票, 管理排查, 请求记录, 压测证据]
 later: [设置, 异步抢票结果, 历史压测报告]
 visual: 浅色桌面工作台，信息密度高，状态和证据优先，少量绿色用于成功与当前选择，红色只用于失败和风险。
 seam: { type: none, why: 这是学习和面试展示项目，页面内不做商业转化。 }

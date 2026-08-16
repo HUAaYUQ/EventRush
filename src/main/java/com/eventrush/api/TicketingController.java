@@ -5,7 +5,9 @@ import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketPassenger;
 import com.eventrush.domain.TicketRefundResult;
+import com.eventrush.domain.TicketWaitlistRequest;
 import com.eventrush.service.AsyncGrabService;
+import com.eventrush.service.TicketWaitlistService;
 import com.eventrush.service.TicketingService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -15,6 +17,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,10 +30,16 @@ class TicketingController {
 
     private final TicketingService ticketingService;
     private final AsyncGrabService asyncGrabService;
+    private final TicketWaitlistService ticketWaitlistService;
 
-    TicketingController(TicketingService ticketingService, AsyncGrabService asyncGrabService) {
+    TicketingController(
+            TicketingService ticketingService,
+            AsyncGrabService asyncGrabService,
+            TicketWaitlistService ticketWaitlistService
+    ) {
         this.ticketingService = ticketingService;
         this.asyncGrabService = asyncGrabService;
+        this.ticketWaitlistService = ticketWaitlistService;
     }
 
     @PostMapping("/orders/grab")
@@ -75,6 +84,43 @@ class TicketingController {
     @GetMapping("/users/{userId}/orders")
     List<TicketOrder> listUserOrders(@PathVariable Long userId) {
         return ticketingService.listOrdersByUser(userId);
+    }
+
+    @PostMapping("/users/{userId}/waitlists")
+    TicketWaitlistRequest joinWaitlist(
+            @PathVariable Long userId,
+            @Valid @RequestBody JoinWaitlistRequest request
+    ) {
+        return ticketWaitlistService.join(
+                userId,
+                request.sessionId(),
+                request.ticketCategoryId(),
+                request.passengers().stream()
+                        .map(passenger -> new TicketPassenger(
+                                null,
+                                null,
+                                0,
+                                passenger.name(),
+                                passenger.documentType(),
+                                passenger.documentLast4()
+                        ))
+                        .toList()
+        );
+    }
+
+    @GetMapping("/users/{userId}/waitlists")
+    List<TicketWaitlistRequest> listUserWaitlists(@PathVariable Long userId) {
+        return ticketWaitlistService.listForUser(userId);
+    }
+
+    @GetMapping("/users/{userId}/waitlists/{waitlistId}")
+    TicketWaitlistRequest getUserWaitlist(@PathVariable Long userId, @PathVariable Long waitlistId) {
+        return ticketWaitlistService.getForUser(userId, waitlistId);
+    }
+
+    @DeleteMapping("/users/{userId}/waitlists/{waitlistId}")
+    TicketWaitlistRequest cancelUserWaitlist(@PathVariable Long userId, @PathVariable Long waitlistId) {
+        return ticketWaitlistService.cancelForUser(userId, waitlistId);
     }
 
     @GetMapping("/users/{userId}/orders/{orderId}")
@@ -140,6 +186,15 @@ class TicketingController {
             @NotNull(message = "userId is required") Long userId,
             @NotNull(message = "sessionId is required") Long sessionId,
             @NotNull(message = "ticketCategoryId is required") Long ticketCategoryId
+    ) {
+    }
+
+    record JoinWaitlistRequest(
+            @NotNull(message = "sessionId is required") Long sessionId,
+            @NotNull(message = "ticketCategoryId is required") Long ticketCategoryId,
+            @NotEmpty(message = "passengers is required")
+            @Size(max = 5, message = "passengers size must be between 1 and 5")
+            List<@Valid PassengerRequest> passengers
     ) {
     }
 
