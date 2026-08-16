@@ -103,6 +103,7 @@ http://localhost:5173
 | `/ops` | 平台运营 | 请求记录、traceId、订单与票务反查 |
 | `/lab` | 工程演示者 | 压测记录和 H2 / Redis Lua 对比 |
 | `/demo` | 成果接收者 | 选择演示身份和入口 |
+| `/organizer/events` | 活动主办方 | 管理活动、发布场次票档和通知 |
 
 购票导航只显示“发现活动”和“我的票务”。验票、运营和工程证据暂时保留兼容访问，但不属于当前消费者产品，也不在正式导航中展示。
 
@@ -353,6 +354,7 @@ requests/stage-18.http
 | `eventrush.queue.redis-enabled` | `false` | 是否启用 Redis 队列 |
 | `eventrush.queue.rocket-enabled` | `false` | 是否启用 RocketMQ 异步抢票 |
 | `eventrush.admin.key` | `${EVENTRUSH_ADMIN_KEY:eventrush-admin-key}` | 管理端密钥 |
+| `eventrush.organizer.key` | `${EVENTRUSH_ORGANIZER_KEY:eventrush-organizer-key}` | 主办方接口密钥 |
 
 RocketMQ 相关部署说明：
 
@@ -379,6 +381,8 @@ docs/stage-2-acceptance.md
 docs/stage-49-acceptance.md
 docs/stage-50-acceptance.md
 docs/stage-51-acceptance.md
+docs/stage-52-acceptance.md
+docs/stage-53-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

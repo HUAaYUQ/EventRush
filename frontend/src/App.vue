@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import OrganizerApp from './organizer/OrganizerApp.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -350,6 +351,12 @@ const demoEntries = [
     role: '购票用户',
     title: '我的订单与电子票',
     detail: '查看候补、继续支付、查票与退票。',
+  },
+  {
+    path: '/organizer/events',
+    role: '活动主办方',
+    title: '活动发布与管理',
+    detail: '创建活动、配置场次票档、发布通知。',
   },
   {
     path: '/gate',
@@ -1488,6 +1495,9 @@ watch(remainingPaymentSeconds, (seconds, previousSeconds) => {
 })
 
 onMounted(async () => {
+  if (surface.value === 'organizer') {
+    return
+  }
   clockTimer = window.setInterval(() => {
     now.value = Date.now()
   }, 1000)
@@ -1501,7 +1511,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="shell" :data-surface="surface">
+  <OrganizerApp v-if="surface === 'organizer'" />
+  <main v-else class="shell" :data-surface="surface">
     <header v-if="surface === 'customer'" class="customer-header">
       <RouterLink class="customer-brand" to="/" aria-label="EventRush 活动首页">
         <img src="/favicon.svg" alt="" />

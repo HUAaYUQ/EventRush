@@ -16,6 +16,8 @@ rocketmq:
     group: eventrush-grab-producer
 
 eventrush:
+  organizer:
+    key: ${EVENTRUSH_ORGANIZER_KEY:eventrush-organizer-key}
   admin:
     key: ${EVENTRUSH_ADMIN_KEY:eventrush-admin-key}
   cache:
