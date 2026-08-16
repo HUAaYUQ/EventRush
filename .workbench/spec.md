@@ -29,8 +29,8 @@ cold_start:
   re_entry: 距上次验收已经隔了一段时间，直接重新跑一条新链路，不需要补旧数据。
 
 home:
-  - 车票预订：活动票档选择、购票人脱敏信息、订单核对、提交订单、支付出票
-  - 我的电子票：ticketCode 查询、订单状态、电子票状态
+  - 车票预订：活动票档选择、1 到 5 位购票人脱敏信息、订单核对、提交订单、逐人出票
+  - 我的电子票：订单恢复、每位购票人的独立 ticketCode 和验票状态
   - 验票入口：票码输入、验票员 ID、入场核验结果
   - 工程证据：hook、本轮验收摘要、最近请求记录、压测证据、管理排查
 
@@ -93,13 +93,17 @@ entities:
     written_by: { id: system, session_id: system, name: system, remaining_stock: system }
     relations: [TicketCategory n-1 Session, TicketCategory 1-n TicketOrder]
   - name: TicketOrder
-    fields: [id, user_id, session_id, ticket_category_id, quantity, passenger_name, passenger_document_type, passenger_document_last4, unit_price_cents, amount_cents, status, expire_time]
-    written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, quantity: user, passenger_name: user, passenger_document_type: user, passenger_document_last4: user, unit_price_cents: system, amount_cents: system, status: system, expire_time: system }
-    relations: [TicketOrder 1-1 ElectronicTicket]
+    fields: [id, user_id, session_id, ticket_category_id, quantity, unit_price_cents, amount_cents, status, expire_time]
+    written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, quantity: system, unit_price_cents: system, amount_cents: system, status: system, expire_time: system }
+    relations: [TicketOrder 1-n TicketPassenger, TicketOrder 1-n ElectronicTicket]
+  - name: TicketPassenger
+    fields: [id, order_id, sequence, name, document_type, document_last4]
+    written_by: { id: system, order_id: system, sequence: system, name: user, document_type: user, document_last4: user }
+    relations: [TicketPassenger n-1 TicketOrder, TicketPassenger 1-1 ElectronicTicket]
   - name: ElectronicTicket
-    fields: [ticket_code, order_id, status, verifier_id]
-    written_by: { ticket_code: system, order_id: system, status: system, verifier_id: user }
-    relations: [ElectronicTicket n-1 TicketOrder]
+    fields: [ticket_code, order_id, passenger_id, status, verifier_id]
+    written_by: { ticket_code: system, order_id: system, passenger_id: system, status: system, verifier_id: user }
+    relations: [ElectronicTicket n-1 TicketOrder, ElectronicTicket 1-1 TicketPassenger]
   - name: RequestRecord
     fields: [time, action, method, path, result, code, trace_id, summary]
     written_by: { time: system, action: system, method: system, path: system, result: system, code: system, trace_id: system, summary: system }

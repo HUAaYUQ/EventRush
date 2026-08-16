@@ -5,11 +5,13 @@ import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketCategory;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
 import com.eventrush.domain.TicketStatus;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,6 +31,7 @@ public class TicketingService {
 
     private final EventCatalogService eventCatalogService;
     private final AtomicLong orderIdGenerator = new AtomicLong(1);
+    private final AtomicLong passengerIdGenerator = new AtomicLong(1);
     private final AtomicLong ticketIdGenerator = new AtomicLong(1);
     private final Map<Long, TicketOrder> orders = new ConcurrentHashMap<>();
     private final Map<String, ElectronicTicket> tickets = new ConcurrentHashMap<>();
@@ -103,10 +106,14 @@ public class TicketingService {
                 userId,
                 sessionId,
                 ticketCategoryId,
-                1,
-                "压测用户 " + userId,
-                PassengerDocumentType.OTHER,
-                "%04d".formatted(Math.floorMod(userId, 10_000))
+                List.of(new TicketPassenger(
+                        null,
+                        null,
+                        1,
+                        "压测用户 " + userId,
+                        PassengerDocumentType.OTHER,
+                        "%04d".formatted(Math.floorMod(userId, 10_000))
+                ))
         );
     }
 
@@ -120,8 +127,23 @@ public class TicketingService {
             PassengerDocumentType passengerDocumentType,
             String passengerDocumentLast4
     ) {
-        PassengerSnapshot passenger = validatePassenger(
-                quantity, passengerName, passengerDocumentType, passengerDocumentLast4);
+        if (quantity != 1) {
+            throw new BusinessException("PASSENGER_COUNT_MISMATCH", HttpStatus.BAD_REQUEST,
+                    "订单数量必须与购票人数一致");
+        }
+        return grabTicket(userId, sessionId, ticketCategoryId, List.of(new TicketPassenger(
+                null, null, 1, passengerName, passengerDocumentType, passengerDocumentLast4)));
+    }
+
+    @Transactional
+    public synchronized TicketOrder grabTicket(
+            Long userId,
+            Long sessionId,
+            Long ticketCategoryId,
+            List<TicketPassenger> requestedPassengers
+    ) {
+        List<TicketPassenger> passengers = validatePassengers(requestedPassengers);
+        int quantity = passengers.size();
         checkGrabRateLimit(userId);
         TicketCategory ticketCategory = eventCatalogService.getTicketCategory(sessionId, ticketCategoryId);
         if (hasGrabbed(userId, sessionId, ticketCategoryId)) {
@@ -129,9 +151,9 @@ public class TicketingService {
                     "你已有这个票档的有效订单，请前往我的电子票继续处理");
         }
         if (redisStockEnabled) {
-            deductRedisStock(userId, sessionId, ticketCategoryId);
+            deductRedisStock(userId, sessionId, ticketCategoryId, quantity);
         }
-        eventCatalogService.deductStock(sessionId, ticketCategoryId);
+        eventCatalogService.deductStock(sessionId, ticketCategoryId, quantity);
         LocalDateTime now = LocalDateTime.now();
         TicketOrder order = createPendingOrder(
                 userId,
@@ -139,7 +161,7 @@ public class TicketingService {
                 sessionId,
                 ticketCategoryId,
                 ticketCategory.priceCents(),
-                passenger,
+                passengers,
                 now,
                 now.plusSeconds(orderExpireSeconds)
         );
@@ -185,29 +207,34 @@ public class TicketingService {
             Long sessionId,
             Long ticketCategoryId,
             long unitPriceCents,
-            PassengerSnapshot passenger,
+            List<TicketPassenger> passengers,
             LocalDateTime createdTime,
             LocalDateTime expireTime
     ) {
+        int quantity = passengers.size();
         if (ticketOrderRepository != null) {
             return ticketOrderRepository.createPending(
                     userId, eventId, sessionId, ticketCategoryId, unitPriceCents,
-                    passenger.quantity(), passenger.name(), passenger.documentType(), passenger.documentLast4(),
+                    passengers,
                     createdTime, expireTime);
         }
+        long orderId = orderIdGenerator.getAndIncrement();
+        List<TicketPassenger> savedPassengers = passengers.stream()
+                .map(passenger -> new TicketPassenger(
+                        passengerIdGenerator.getAndIncrement(), orderId, passenger.sequence(), passenger.name(),
+                        passenger.documentType(), passenger.documentLast4()))
+                .toList();
         // ponytail: only used by small unit tests; app runtime writes orders through TicketOrderRepository.
         TicketOrder order = new TicketOrder(
-                orderIdGenerator.getAndIncrement(),
+                orderId,
                 userId,
                 eventId,
                 sessionId,
                 ticketCategoryId,
                 unitPriceCents,
-                unitPriceCents * passenger.quantity(),
-                passenger.quantity(),
-                passenger.name(),
-                passenger.documentType(),
-                passenger.documentLast4(),
+                unitPriceCents * quantity,
+                quantity,
+                savedPassengers,
                 OrderStatus.PENDING_PAYMENT,
                 createdTime,
                 null,
@@ -218,39 +245,34 @@ public class TicketingService {
         return order;
     }
 
-    private PassengerSnapshot validatePassenger(
-            int quantity,
-            String passengerName,
-            PassengerDocumentType passengerDocumentType,
-            String passengerDocumentLast4
-    ) {
-        String normalizedName = passengerName == null ? "" : passengerName.trim();
-        String normalizedLast4 = passengerDocumentLast4 == null ? "" : passengerDocumentLast4.trim().toUpperCase();
-        if (quantity != 1) {
-            throw new BusinessException("UNSUPPORTED_QUANTITY", HttpStatus.BAD_REQUEST,
-                    "当前阶段每笔订单仅支持 1 位购票人和 1 张电子票");
+    private List<TicketPassenger> validatePassengers(List<TicketPassenger> requestedPassengers) {
+        if (requestedPassengers == null || requestedPassengers.isEmpty() || requestedPassengers.size() > 5) {
+            throw new BusinessException("INVALID_PASSENGER_COUNT", HttpStatus.BAD_REQUEST,
+                    "每笔订单请选择 1 到 5 位购票人");
         }
+        return IntStream.range(0, requestedPassengers.size())
+                .mapToObj(index -> validatePassenger(requestedPassengers.get(index), index + 1))
+                .toList();
+    }
+
+    private TicketPassenger validatePassenger(TicketPassenger passenger, int sequence) {
+        String normalizedName = passenger == null || passenger.name() == null ? "" : passenger.name().trim();
+        String normalizedLast4 = passenger == null || passenger.documentLast4() == null
+                ? "" : passenger.documentLast4().trim().toUpperCase();
+        PassengerDocumentType documentType = passenger == null ? null : passenger.documentType();
         if (normalizedName.length() < 2 || normalizedName.length() > 30) {
             throw new BusinessException("INVALID_PASSENGER", HttpStatus.BAD_REQUEST,
-                    "购票人姓名长度应为 2 到 30 个字符");
+                    "第 %d 位购票人姓名长度应为 2 到 30 个字符".formatted(sequence));
         }
-        if (passengerDocumentType == null || !normalizedLast4.matches("[A-Z0-9]{4}")) {
+        if (documentType == null || !normalizedLast4.matches("[A-Z0-9]{4}")) {
             throw new BusinessException("INVALID_PASSENGER", HttpStatus.BAD_REQUEST,
-                    "请选择证件类型，并填写证件号码后四位");
+                    "第 %d 位购票人需要选择证件类型并填写证件号码后四位".formatted(sequence));
         }
-        return new PassengerSnapshot(quantity, normalizedName, passengerDocumentType, normalizedLast4);
+        return new TicketPassenger(null, null, sequence, normalizedName, documentType, normalizedLast4);
     }
 
-    private record PassengerSnapshot(
-            int quantity,
-            String name,
-            PassengerDocumentType documentType,
-            String documentLast4
-    ) {
-    }
-
-    private void deductRedisStock(Long userId, Long sessionId, Long ticketCategoryId) {
-        long result = redisTicketStockService.tryDeduct(userId, sessionId, ticketCategoryId);
+    private void deductRedisStock(Long userId, Long sessionId, Long ticketCategoryId, int quantity) {
+        long result = redisTicketStockService.tryDeduct(userId, sessionId, ticketCategoryId, quantity);
         if (result == RedisTicketStockService.DUPLICATE_GRAB) {
             throw new BusinessException("DUPLICATE_GRAB", HttpStatus.CONFLICT,
                     "你已有这个票档的有效订单，请前往我的电子票继续处理");
@@ -293,10 +315,10 @@ public class TicketingService {
     }
 
     @Transactional(noRollbackFor = OrderExpiredException.class)
-    public ElectronicTicket payOrder(Long orderId) {
+    public List<ElectronicTicket> payOrder(Long orderId) {
         TicketOrder order = getOrder(orderId);
         if (order.status() == OrderStatus.PAID) {
-            return getTicketByOrderId(orderId);
+            return getTicketsByOrderId(orderId);
         }
         if (order.status() != OrderStatus.PENDING_PAYMENT) {
             throw new BusinessException("ORDER_NOT_PAYABLE", HttpStatus.CONFLICT,
@@ -314,41 +336,57 @@ public class TicketingService {
             orders.put(orderId, paidOrder);
         }
 
-        ElectronicTicket ticket = createElectronicTicket(orderId);
-        return ticket;
+        return createElectronicTickets(order);
     }
 
     @Transactional(noRollbackFor = OrderExpiredException.class)
-    public ElectronicTicket payOrderForUser(Long userId, Long orderId) {
+    public List<ElectronicTicket> payOrderForUser(Long userId, Long orderId) {
         assertOrderOwner(userId, getOrder(orderId));
         return payOrder(orderId);
     }
 
-    public ElectronicTicket getTicketByOrderId(Long orderId) {
+    public List<ElectronicTicket> getTicketsByOrderId(Long orderId) {
         if (electronicTicketRepository != null) {
-            return electronicTicketRepository.findByOrderId(orderId)
-                    .orElseThrow(() -> new BusinessException("TICKET_NOT_FOUND", HttpStatus.NOT_FOUND, "电子票尚未生成"));
+            List<ElectronicTicket> found = electronicTicketRepository.findByOrderId(orderId);
+            if (found.isEmpty()) {
+                throw new BusinessException("TICKET_NOT_FOUND", HttpStatus.NOT_FOUND, "电子票尚未生成");
+            }
+            return found;
         }
-        return tickets.values().stream()
+        List<ElectronicTicket> found = tickets.values().stream()
                 .filter(ticket -> ticket.orderId().equals(orderId))
-                .findFirst()
-                .orElseThrow(() -> new BusinessException("TICKET_NOT_FOUND", HttpStatus.NOT_FOUND, "电子票尚未生成"));
+                .sorted((left, right) -> Long.compare(left.passengerId(), right.passengerId()))
+                .toList();
+        if (found.isEmpty()) {
+            throw new BusinessException("TICKET_NOT_FOUND", HttpStatus.NOT_FOUND, "电子票尚未生成");
+        }
+        return found;
     }
 
-    public ElectronicTicket getTicketByOrderIdForUser(Long userId, Long orderId) {
+    public List<ElectronicTicket> getTicketsByOrderIdForUser(Long userId, Long orderId) {
         assertOrderOwner(userId, getOrder(orderId));
-        return getTicketByOrderId(orderId);
+        return getTicketsByOrderId(orderId);
     }
 
-    private ElectronicTicket createElectronicTicket(Long orderId) {
+    private List<ElectronicTicket> createElectronicTickets(TicketOrder order) {
+        return order.passengers().stream()
+                .map(passenger -> createElectronicTicket(order.id(), passenger))
+                .toList();
+    }
+
+    private ElectronicTicket createElectronicTicket(Long orderId, TicketPassenger passenger) {
         String ticketCode = "ER-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase();
         LocalDateTime generatedTime = LocalDateTime.now();
         if (electronicTicketRepository != null) {
-            return electronicTicketRepository.create(orderId, ticketCode, generatedTime);
+            return electronicTicketRepository.create(orderId, passenger.id(), ticketCode, generatedTime);
         }
         ElectronicTicket ticket = new ElectronicTicket(
                 ticketIdGenerator.getAndIncrement(),
                 orderId,
+                passenger.id(),
+                passenger.name(),
+                passenger.documentType(),
+                passenger.documentLast4(),
                 ticketCode,
                 TicketStatus.VALID,
                 generatedTime,
@@ -437,9 +475,10 @@ public class TicketingService {
     }
 
     private void releaseStock(TicketOrder order) {
-        eventCatalogService.releaseStock(order.sessionId(), order.ticketCategoryId());
+        eventCatalogService.releaseStock(order.sessionId(), order.ticketCategoryId(), order.quantity());
         if (redisStockEnabled && redisTicketStockService != null) {
-            redisTicketStockService.release(order.userId(), order.sessionId(), order.ticketCategoryId());
+            redisTicketStockService.release(
+                    order.userId(), order.sessionId(), order.ticketCategoryId(), order.quantity());
         }
     }
 

@@ -3,6 +3,7 @@ package com.eventrush.service;
 import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
@@ -31,13 +32,12 @@ public class TicketOrderRepository {
             Long sessionId,
             Long ticketCategoryId,
             long unitPriceCents,
-            int quantity,
-            String passengerName,
-            PassengerDocumentType passengerDocumentType,
-            String passengerDocumentLast4,
+            List<TicketPassenger> passengers,
             LocalDateTime createdTime,
             LocalDateTime expireTime
     ) {
+        int quantity = passengers.size();
+        TicketPassenger primaryPassenger = passengers.get(0);
         KeyHolder keyHolder = new GeneratedKeyHolder();
         try {
             jdbcTemplate.update(connection -> {
@@ -55,9 +55,9 @@ public class TicketOrderRepository {
                 statement.setLong(5, unitPriceCents);
                 statement.setLong(6, unitPriceCents * quantity);
                 statement.setInt(7, quantity);
-                statement.setString(8, passengerName);
-                statement.setString(9, passengerDocumentType.name());
-                statement.setString(10, passengerDocumentLast4);
+                statement.setString(8, primaryPassenger.name());
+                statement.setString(9, primaryPassenger.documentType().name());
+                statement.setString(10, primaryPassenger.documentLast4());
                 statement.setString(11, activeGrabKey(userId, sessionId, ticketCategoryId));
                 statement.setString(12, OrderStatus.PENDING_PAYMENT.name());
                 statement.setTimestamp(13, Timestamp.valueOf(createdTime));
@@ -72,13 +72,31 @@ public class TicketOrderRepository {
         if (key == null) {
             throw new BusinessException("order creation failed");
         }
+        insertPassengers(key.longValue(), passengers);
         return findById(key.longValue()).orElseThrow(() -> new BusinessException("order creation failed"));
+    }
+
+    private void insertPassengers(Long orderId, List<TicketPassenger> passengers) {
+        for (TicketPassenger passenger : passengers) {
+            jdbcTemplate.update("""
+                            INSERT INTO ticket_order_passenger
+                                (order_id, passenger_sequence, passenger_name, passenger_document_type,
+                                 passenger_document_last4)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                    orderId,
+                    passenger.sequence(),
+                    passenger.name(),
+                    passenger.documentType().name(),
+                    passenger.documentLast4()
+            );
+        }
     }
 
     public Optional<TicketOrder> findById(Long orderId) {
         return jdbcTemplate.query("""
                         SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
-                               quantity, passenger_name, passenger_document_type, passenger_document_last4, order_status,
+                               quantity, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE id = ?
@@ -92,9 +110,7 @@ public class TicketOrderRepository {
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
                         resultSet.getInt("quantity"),
-                        resultSet.getString("passenger_name"),
-                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
-                        resultSet.getString("passenger_document_last4"),
+                        List.of(),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -102,13 +118,13 @@ public class TicketOrderRepository {
                         resultSet.getObject("expire_time", LocalDateTime.class)
                 ),
                 orderId
-        ).stream().findFirst();
+        ).stream().findFirst().map(this::withPassengers);
     }
 
     public List<TicketOrder> findExpiredPending(LocalDateTime now, int limit) {
         return jdbcTemplate.query("""
                         SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
-                               quantity, passenger_name, passenger_document_type, passenger_document_last4, order_status,
+                               quantity, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE order_status = ?
@@ -125,9 +141,7 @@ public class TicketOrderRepository {
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
                         resultSet.getInt("quantity"),
-                        resultSet.getString("passenger_name"),
-                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
-                        resultSet.getString("passenger_document_last4"),
+                        List.of(),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -137,13 +151,13 @@ public class TicketOrderRepository {
                 OrderStatus.PENDING_PAYMENT.name(),
                 Timestamp.valueOf(now),
                 limit
-        );
+        ).stream().map(this::withPassengers).toList();
     }
 
     public List<TicketOrder> findByUserId(Long userId) {
         return jdbcTemplate.query("""
                         SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
-                               quantity, passenger_name, passenger_document_type, passenger_document_last4, order_status,
+                               quantity, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE user_id = ?
@@ -158,9 +172,7 @@ public class TicketOrderRepository {
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
                         resultSet.getInt("quantity"),
-                        resultSet.getString("passenger_name"),
-                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
-                        resultSet.getString("passenger_document_last4"),
+                        List.of(),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -168,6 +180,34 @@ public class TicketOrderRepository {
                         resultSet.getObject("expire_time", LocalDateTime.class)
                 ),
                 userId
+        ).stream().map(this::withPassengers).toList();
+    }
+
+    private TicketOrder withPassengers(TicketOrder order) {
+        return new TicketOrder(
+                order.id(), order.userId(), order.eventId(), order.sessionId(), order.ticketCategoryId(),
+                order.unitPriceCents(), order.amountCents(), order.quantity(), findPassengers(order.id()),
+                order.status(), order.createdTime(), order.payTime(), order.cancelTime(), order.expireTime()
+        );
+    }
+
+    private List<TicketPassenger> findPassengers(Long orderId) {
+        return jdbcTemplate.query("""
+                        SELECT id, order_id, passenger_sequence, passenger_name, passenger_document_type,
+                               passenger_document_last4
+                        FROM ticket_order_passenger
+                        WHERE order_id = ?
+                        ORDER BY passenger_sequence
+                        """,
+                (resultSet, rowNumber) -> new TicketPassenger(
+                        resultSet.getLong("id"),
+                        resultSet.getLong("order_id"),
+                        resultSet.getInt("passenger_sequence"),
+                        resultSet.getString("passenger_name"),
+                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
+                        resultSet.getString("passenger_document_last4")
+                ),
+                orderId
         );
     }
 

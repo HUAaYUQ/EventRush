@@ -24,15 +24,27 @@ CREATE TABLE IF NOT EXISTS ticket_order (
     KEY idx_ticket_order_status_expire (order_status, expire_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS ticket_order_passenger (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL,
+    passenger_sequence INT NOT NULL,
+    passenger_name VARCHAR(64) NOT NULL,
+    passenger_document_type VARCHAR(32) NOT NULL,
+    passenger_document_last4 VARCHAR(4) NOT NULL,
+    UNIQUE KEY uk_ticket_order_passenger_sequence (order_id, passenger_sequence),
+    KEY idx_ticket_order_passenger_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS electronic_ticket (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     order_id BIGINT NOT NULL,
+    passenger_id BIGINT NOT NULL,
     ticket_code VARCHAR(64) NOT NULL,
     ticket_status VARCHAR(32) NOT NULL,
     generated_time DATETIME NOT NULL,
     verified_time DATETIME NULL,
     verifier_id BIGINT NULL,
-    UNIQUE KEY uk_electronic_ticket_order (order_id),
+    UNIQUE KEY uk_electronic_ticket_passenger (passenger_id),
     UNIQUE KEY uk_electronic_ticket_code (ticket_code),
     KEY idx_electronic_ticket_status (ticket_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

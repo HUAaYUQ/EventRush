@@ -96,11 +96,9 @@ http://localhost:18086
 | `sessionId` | 场次 ID |
 | `ticketCategoryId` | 票档 ID |
 | `unitPriceCents` | 下单时的票档单价快照，单位为分 |
-| `amountCents` | 订单应付金额，单位为分；当前每单固定 1 张 |
-| `quantity` | 购票数量；当前单人单票阶段固定为 `1` |
-| `passengerName` | 下单时保存的购票人姓名快照 |
-| `passengerDocumentType` | 证件类型：`ID_CARD`、`PASSPORT`、`OTHER` |
-| `passengerDocumentLast4` | 证件号码后四位，只允许字母或数字；接口不接收完整证件号 |
+| `amountCents` | 订单应付金额，等于单价乘以购票人数，单位为分 |
+| `quantity` | 购票数量，由 `passengers` 数量推导，范围为 1 到 5 |
+| `passengers` | 购票人快照列表，每项包含 `id`、顺序、姓名、证件类型和证件后四位 |
 | `status` | 订单状态：`PENDING_PAYMENT`、`PAID`、`CANCELED` |
 | `createdTime` | 创建时间 |
 | `payTime` | 支付时间 |
@@ -113,6 +111,10 @@ http://localhost:18086
 | --- | --- |
 | `id` | 电子票 ID |
 | `orderId` | 关联订单 ID |
+| `passengerId` | 关联购票人 ID；一位购票人对应一张电子票 |
+| `passengerName` | 购票人姓名快照 |
+| `passengerDocumentType` | 证件类型：`ID_CARD`、`PASSPORT`、`OTHER` |
+| `passengerDocumentLast4` | 证件号码后四位；接口不接收完整证件号 |
 | `ticketCode` | 票码 |
 | `status` | 票状态：`VALID`、`VERIFIED` |
 | `generatedTime` | 出票时间 |
@@ -147,16 +149,24 @@ Content-Type: application/json
   "userId": 9800,
   "sessionId": 101,
   "ticketCategoryId": 1001,
-  "quantity": 1,
-  "passengerName": "张三",
-  "passengerDocumentType": "ID_CARD",
-  "passengerDocumentLast4": "1234"
+  "passengers": [
+    {
+      "name": "张三",
+      "documentType": "ID_CARD",
+      "documentLast4": "1234"
+    },
+    {
+      "name": "李四",
+      "documentType": "PASSPORT",
+      "documentLast4": "8X2P"
+    }
+  ]
 }
 ```
 
-成功返回 `TicketOrder`，初始状态为 `PENDING_PAYMENT`。价格、数量和购票人脱敏信息都会成为订单快照，后续票档或本机表单变化不会改写历史订单。
+成功返回 `TicketOrder`，初始状态为 `PENDING_PAYMENT`。`quantity` 由 `passengers` 长度推导，服务端不接受独立数量字段。价格、数量和购票人脱敏信息都会成为订单快照。
 
-当前电子票模型仍是一笔订单对应一张票，因此 `quantity` 只允许为 `1`。多人多票需要先升级为“每位购票人生成独立电子票码”，不能把一个票码复用给多人。
+每笔订单支持 1 到 5 位购票人。库存按人数扣减，订单金额等于票档单价乘以人数。
 
 ### 异步抢票
 
@@ -189,7 +199,7 @@ GET /api/orders/grab-requests/{requestId}
 POST /api/orders/{orderId}/pay
 ```
 
-成功返回 `ElectronicTicket`。支付接口具备幂等性：同一个已支付订单再次支付，会返回同一张电子票，不会重复出票。
+成功返回 `ElectronicTicket[]`，每位购票人对应一张独立票。支付接口具备幂等性：同一个已支付订单再次支付，会返回原有票列表，不会重复出票。
 
 ### 查询订单详情
 
@@ -223,13 +233,13 @@ POST /api/users/{userId}/orders/{orderId}/pay
 
 支付前校验订单归属和支付截止时间。订单过期时返回 `ORDER_EXPIRED`，同时取消订单并释放库存和再次购买资格。
 
-### 按用户订单取得电子票
+### 按用户订单取得电子票列表
 
 ```http
-GET /api/users/{userId}/orders/{orderId}/ticket
+GET /api/users/{userId}/orders/{orderId}/tickets
 ```
 
-用于在刷新页面或重新进入订单中心后找回已出票凭证。
+返回 `ElectronicTicket[]`，用于在刷新页面或重新进入订单中心后找回该订单的全部电子票。
 
 > 当前 `userId` 归属校验用于本地产品演示，还不等同于登录认证。正式身份系统仍是后续阶段。
 
@@ -282,14 +292,14 @@ X-Admin-Key: eventrush-admin-key
 
 返回该用户的订单列表，适合客服排查“用户是否抢到票、订单是否已支付”。
 
-### 按订单查询电子票
+### 按订单查询电子票列表
 
 ```http
-GET /api/admin/orders/{orderId}/ticket
+GET /api/admin/orders/{orderId}/tickets
 X-Admin-Key: eventrush-admin-key
 ```
 
-返回订单对应的电子票，适合排查“支付后是否已出票”。
+返回订单对应的全部电子票，适合排查“是否按购票人数完整出票”。
 
 ### 按票码查询电子票
 

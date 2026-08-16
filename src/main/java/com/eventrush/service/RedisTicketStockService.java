@@ -29,11 +29,12 @@ public class RedisTicketStockService {
         redisTemplate.delete(grabbedUsersKey(sessionId, ticketCategoryId));
     }
 
-    public long tryDeduct(Long userId, Long sessionId, Long ticketCategoryId) {
+    public long tryDeduct(Long userId, Long sessionId, Long ticketCategoryId, int quantity) {
         Long result = redisTemplate.execute(
                 grabScript,
                 List.of(stockKey(sessionId, ticketCategoryId), grabbedUsersKey(sessionId, ticketCategoryId)),
-                String.valueOf(userId)
+                String.valueOf(userId),
+                String.valueOf(quantity)
         );
         if (result == null) {
             throw new BusinessException("redis stock deduction failed");
@@ -41,8 +42,8 @@ public class RedisTicketStockService {
         return result;
     }
 
-    public void release(Long userId, Long sessionId, Long ticketCategoryId) {
-        redisTemplate.opsForValue().increment(stockKey(sessionId, ticketCategoryId));
+    public void release(Long userId, Long sessionId, Long ticketCategoryId, int quantity) {
+        redisTemplate.opsForValue().increment(stockKey(sessionId, ticketCategoryId), quantity);
         redisTemplate.opsForSet().remove(grabbedUsersKey(sessionId, ticketCategoryId), String.valueOf(userId));
     }
 

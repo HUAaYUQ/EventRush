@@ -24,9 +24,9 @@ class AdminController {
         return ticketingService.listOrdersByUser(userId);
     }
 
-    @GetMapping("/orders/{orderId}/ticket")
-    ElectronicTicket getTicketByOrderId(@PathVariable Long orderId) {
-        return ticketingService.getTicketByOrderId(orderId);
+    @GetMapping("/orders/{orderId}/tickets")
+    List<ElectronicTicket> getTicketsByOrderId(@PathVariable Long orderId) {
+        return ticketingService.getTicketsByOrderId(orderId);
     }
 
     @GetMapping("/tickets/{ticketCode}")

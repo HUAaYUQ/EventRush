@@ -60,20 +60,22 @@ public class EventCatalogService {
                 .toList();
     }
 
-    public synchronized TicketCategory deductStock(Long sessionId, Long ticketCategoryId) {
+    public synchronized TicketCategory deductStock(Long sessionId, Long ticketCategoryId, int quantity) {
         Event event = findEventBySessionId(sessionId);
         List<EventSession> sessions = event.sessions().stream()
-                .map(session -> session.id().equals(sessionId) ? deductFromSession(session, ticketCategoryId) : session)
+                .map(session -> session.id().equals(sessionId)
+                        ? deductFromSession(session, ticketCategoryId, quantity) : session)
                 .toList();
         Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions);
         events.put(updated.id(), updated);
         return getTicketCategory(sessionId, ticketCategoryId);
     }
 
-    public synchronized TicketCategory releaseStock(Long sessionId, Long ticketCategoryId) {
+    public synchronized TicketCategory releaseStock(Long sessionId, Long ticketCategoryId, int quantity) {
         Event event = findEventBySessionId(sessionId);
         List<EventSession> sessions = event.sessions().stream()
-                .map(session -> session.id().equals(sessionId) ? releaseToSession(session, ticketCategoryId) : session)
+                .map(session -> session.id().equals(sessionId)
+                        ? releaseToSession(session, ticketCategoryId, quantity) : session)
                 .toList();
         Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions);
         events.put(updated.id(), updated);
@@ -91,24 +93,24 @@ public class EventCatalogService {
                 .orElseThrow(() -> new BusinessException("SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "场次不存在"));
     }
 
-    private EventSession deductFromSession(EventSession session, Long ticketCategoryId) {
+    private EventSession deductFromSession(EventSession session, Long ticketCategoryId, int quantity) {
         List<TicketCategory> categories = session.ticketCategories().stream()
                 .map(category -> {
                     if (!category.id().equals(ticketCategoryId)) {
                         return category;
                     }
-                    if (category.remainingStock() <= 0) {
+                    if (category.remainingStock() < quantity) {
                         throw new BusinessException("TICKET_SOLD_OUT", HttpStatus.CONFLICT, "当前票档库存不足，请刷新后重新选择");
                     }
-                    return category.deductOne();
+                    return category.deduct(quantity);
                 })
                 .toList();
         return new EventSession(session.id(), session.eventId(), session.startTime(), session.endTime(), categories);
     }
 
-    private EventSession releaseToSession(EventSession session, Long ticketCategoryId) {
+    private EventSession releaseToSession(EventSession session, Long ticketCategoryId, int quantity) {
         List<TicketCategory> categories = session.ticketCategories().stream()
-                .map(category -> category.id().equals(ticketCategoryId) ? category.releaseOne() : category)
+                .map(category -> category.id().equals(ticketCategoryId) ? category.release(quantity) : category)
                 .toList();
         return new EventSession(session.id(), session.eventId(), session.startTime(), session.endTime(), categories);
     }

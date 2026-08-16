@@ -8,10 +8,8 @@ const traceId = ref('')
 const selectedSessionId = ref(null)
 const selectedTicketCategoryId = ref(null)
 const userId = ref(getOrCreateDemoUserId())
-const initialPassengerProfile = getSavedPassengerProfile()
-const passengerName = ref(initialPassengerProfile.name)
-const passengerDocumentType = ref(initialPassengerProfile.documentType)
-const passengerDocumentLast4 = ref(initialPassengerProfile.documentLast4)
+const passengers = ref(getSavedPassengerProfiles())
+let passengerKeySeed = passengers.value.length
 const passengerFieldsTouched = ref(false)
 const orderReviewReady = ref(false)
 const grabLoading = ref(false)
@@ -22,6 +20,7 @@ const payLoading = ref(false)
 const payError = ref('')
 const payTraceId = ref('')
 const ticket = ref(null)
+const issuedTickets = ref([])
 const myOrders = ref([])
 const myOrdersLoading = ref(false)
 const myOrdersError = ref('')
@@ -44,7 +43,7 @@ const now = ref(Date.now())
 let clockTimer = null
 let expirySyncTimer = null
 const adminOrders = ref([])
-const adminTicketByOrder = ref(null)
+const adminTicketsByOrder = ref([])
 const adminTicketByCode = ref(null)
 const pressureMode = ref('默认 H2/本地基线')
 const pressureUsers = ref(40)
@@ -115,16 +114,26 @@ const selectedTicket = computed(() =>
   ),
 )
 
-const normalizedPassengerName = computed(() => passengerName.value.trim())
-const normalizedPassengerDocumentLast4 = computed(() => passengerDocumentLast4.value.trim().toUpperCase())
-const passengerNameValid = computed(
-  () => normalizedPassengerName.value.length >= 2 && normalizedPassengerName.value.length <= 30,
+const normalizedPassengers = computed(() =>
+  passengers.value.map((passenger) => ({
+    ...passenger,
+    name: passenger.name.trim(),
+    documentLast4: passenger.documentLast4.trim().toUpperCase(),
+  })),
 )
-const passengerDocumentLast4Valid = computed(() => /^[A-Z0-9]{4}$/.test(normalizedPassengerDocumentLast4.value))
-const passengerProfileValid = computed(
-  () => passengerNameValid.value && passengerDocumentLast4Valid.value && Boolean(passengerDocumentType.value),
+const passengerValidation = computed(() =>
+  normalizedPassengers.value.map((passenger) => ({
+    nameValid: passenger.name.length >= 2 && passenger.name.length <= 30,
+    documentValid: /^[A-Z0-9]{4}$/.test(passenger.documentLast4) && Boolean(passenger.documentType),
+  })),
 )
-const orderPreviewAmount = computed(() => selectedTicket.value?.category.priceCents ?? 0)
+const passengerProfilesValid = computed(
+  () => passengers.value.length >= 1 && passengers.value.length <= 5
+    && passengerValidation.value.every((result) => result.nameValid && result.documentValid),
+)
+const orderPreviewAmount = computed(
+  () => (selectedTicket.value?.category.priceCents ?? 0) * passengers.value.length,
+)
 const passengerChecks = computed(() => [
   {
     key: 'ticket',
@@ -135,24 +144,20 @@ const passengerChecks = computed(() => [
       : '尚未选择票档',
   },
   {
-    key: 'name',
-    label: '购票人姓名',
-    passed: passengerNameValid.value,
-    value: passengerNameValid.value ? normalizedPassengerName.value : '请填写 2 到 30 个字符',
-  },
-  {
-    key: 'document',
-    label: '证件信息',
-    passed: passengerDocumentLast4Valid.value && Boolean(passengerDocumentType.value),
-    value: passengerDocumentLast4Valid.value
-      ? `${passengerDocumentTypeLabel(passengerDocumentType.value)} · 尾号 ${normalizedPassengerDocumentLast4.value}`
-      : '请填写 4 位字母或数字',
+    key: 'passengers',
+    label: '购票人清单',
+    passed: passengerProfilesValid.value,
+    value: passengerProfilesValid.value
+      ? `${normalizedPassengers.value.map((passenger) => passenger.name).join('、')} · 共 ${passengers.value.length} 人`
+      : '请补全每位购票人的姓名和证件尾号',
   },
   {
     key: 'amount',
     label: '数量与金额',
     passed: Boolean(selectedTicket.value),
-    value: selectedTicket.value ? `1 张 · ${formatMoney(orderPreviewAmount.value)}` : '选择票档后计算',
+    value: selectedTicket.value
+      ? `${passengers.value.length} 张 · ${formatMoney(orderPreviewAmount.value)}`
+      : '选择票档后计算',
   },
 ])
 
@@ -167,6 +172,12 @@ const remainingPaymentSeconds = computed(() => {
 const orderCountdown = computed(() => formatCountdown(remainingPaymentSeconds.value))
 
 const currentOrderContext = computed(() => getOrderContext(order.value))
+const verifiedTicketCount = computed(
+  () => issuedTickets.value.filter((issued) => issued.status === 'VERIFIED').length,
+)
+const allIssuedTicketsVerified = computed(
+  () => issuedTickets.value.length > 0 && verifiedTicketCount.value === issuedTickets.value.length,
+)
 
 const pressureSuccessRate = computed(() => {
   const total = Number(pressureSuccess.value) + Number(pressureFailed.value)
@@ -227,14 +238,14 @@ const hookText = computed(() => {
     return `本轮订单 ${order.value.status} · 等待支付出票`
   }
 
-  if (!ticket.value) {
+  if (issuedTickets.value.length === 0 && !ticket.value) {
     return '本轮订单 PAID · 等待查询电子票'
   }
 
   const failureHint = requestRecords.value.some((record) => record.result !== '成功')
     ? ' · 最近失败请求可用 traceId 排查'
     : ''
-  return `本轮订单 PAID · 电子票 ${ticket.value.status}${failureHint}`
+  return `本轮订单 PAID · 已生成 ${issuedTickets.value.length || 1} 张电子票${failureHint}`
 })
 const coldStartDayOne =
   '先选择一个有库存的票档，填写购票人并核对订单，再完成支付出票。'
@@ -254,7 +265,8 @@ const latestFailedRequest = computed(() =>
 )
 
 const currentTicketCode = computed(
-  () => ticket.value?.ticketCode ?? adminTicketByOrder.value?.ticketCode ?? ticketLookupCode.value,
+  () => ticket.value?.ticketCode ?? issuedTickets.value[0]?.ticketCode
+    ?? adminTicketsByOrder.value[0]?.ticketCode ?? ticketLookupCode.value,
 )
 
 const acceptanceSummary = computed(() => [
@@ -284,9 +296,11 @@ const acceptanceSummary = computed(() => [
   },
   {
     label: '电子票状态',
-    value: ticket.value?.status ?? '未出票',
-    detail: ticket.value ? '来自查票/验票接口' : '等待支付',
-    tone: ticket.value?.status === 'VERIFIED' ? 'ready' : 'pending',
+    value: issuedTickets.value.length
+      ? `${verifiedTicketCount.value}/${issuedTickets.value.length} 已入场`
+      : (ticket.value?.status ?? '未出票'),
+    detail: issuedTickets.value.length ? '每位购票人一张独立票码' : '等待支付',
+    tone: issuedTickets.value.length ? 'ready' : 'pending',
   },
   {
     label: '失败 traceId',
@@ -306,10 +320,10 @@ const pipelineSteps = computed(() => [
   },
   {
     name: '核对购票人',
-    detail: passengerProfileValid.value
-      ? `${normalizedPassengerName.value} · ${passengerDocumentTypeLabel(passengerDocumentType.value)}`
-      : '补全购票人信息',
-    done: passengerProfileValid.value,
+    detail: passengerProfilesValid.value
+      ? `${passengers.value.length} 位购票人 · 一人一票`
+      : '补全每位购票人信息',
+    done: passengerProfilesValid.value,
   },
   {
     name: '提交订单',
@@ -318,18 +332,20 @@ const pipelineSteps = computed(() => [
   },
   {
     name: '支付',
-    detail: ticket.value ? `ticketCode ${ticket.value.ticketCode}` : '支付后出票',
-    done: Boolean(ticket.value),
+    detail: issuedTickets.value.length ? `已生成 ${issuedTickets.value.length} 张票` : '支付后逐人出票',
+    done: issuedTickets.value.length > 0,
   },
   {
     name: '查票',
     detail: ticketLookupTraceId.value ? '已记录 traceId' : '回看电子票',
-    done: Boolean(ticketLookupTraceId.value || ticket.value),
+    done: Boolean(ticketLookupTraceId.value || ticket.value || issuedTickets.value.length),
   },
   {
     name: '验票',
-    detail: ticket.value?.status === 'VERIFIED' ? '已核验入场' : '验证入场状态',
-    done: ticket.value?.status === 'VERIFIED',
+    detail: issuedTickets.value.length
+      ? `${verifiedTicketCount.value}/${issuedTickets.value.length} 张已核验`
+      : (ticket.value?.status === 'VERIFIED' ? '已核验入场' : '验证入场状态'),
+    done: allIssuedTicketsVerified.value || ticket.value?.status === 'VERIFIED',
   },
 ])
 
@@ -359,30 +375,64 @@ function getOrCreateDemoUserId() {
   return created
 }
 
-function getSavedPassengerProfile() {
+function getSavedPassengerProfiles() {
   try {
-    const stored = JSON.parse(window.localStorage.getItem('eventrush-passenger-profile') ?? '{}')
-    return {
-      name: typeof stored.name === 'string' ? stored.name : '',
-      documentType: ['ID_CARD', 'PASSPORT', 'OTHER'].includes(stored.documentType)
-        ? stored.documentType
-        : 'ID_CARD',
-      documentLast4: typeof stored.documentLast4 === 'string' ? stored.documentLast4 : '',
+    const storedProfiles = JSON.parse(window.localStorage.getItem('eventrush-passenger-profiles') ?? '[]')
+    if (Array.isArray(storedProfiles) && storedProfiles.length > 0) {
+      return storedProfiles.slice(0, 5).map((stored, index) => ({
+        key: `saved-${index}`,
+        name: typeof stored.name === 'string' ? stored.name : '',
+        documentType: ['ID_CARD', 'PASSPORT', 'OTHER'].includes(stored.documentType)
+          ? stored.documentType
+          : 'ID_CARD',
+        documentLast4: typeof stored.documentLast4 === 'string' ? stored.documentLast4 : '',
+      }))
     }
+
+    const legacy = JSON.parse(window.localStorage.getItem('eventrush-passenger-profile') ?? '{}')
+    return [{
+      key: 'saved-0',
+      name: typeof legacy.name === 'string' ? legacy.name : '',
+      documentType: ['ID_CARD', 'PASSPORT', 'OTHER'].includes(legacy.documentType)
+        ? legacy.documentType
+        : 'ID_CARD',
+      documentLast4: typeof legacy.documentLast4 === 'string' ? legacy.documentLast4 : '',
+    }]
   } catch {
-    return { name: '', documentType: 'ID_CARD', documentLast4: '' }
+    return [{ key: 'saved-0', name: '', documentType: 'ID_CARD', documentLast4: '' }]
   }
 }
 
-function savePassengerProfile() {
+function savePassengerProfiles() {
   window.localStorage.setItem(
-    'eventrush-passenger-profile',
-    JSON.stringify({
-      name: normalizedPassengerName.value,
-      documentType: passengerDocumentType.value,
-      documentLast4: normalizedPassengerDocumentLast4.value,
-    }),
+    'eventrush-passenger-profiles',
+    JSON.stringify(normalizedPassengers.value.map((passenger) => ({
+      name: passenger.name,
+      documentType: passenger.documentType,
+      documentLast4: passenger.documentLast4,
+    }))),
   )
+}
+
+function addPassenger() {
+  if (passengers.value.length >= 5) {
+    return
+  }
+
+  const key = `new-${passengerKeySeed += 1}`
+  passengers.value.push({ key, name: '', documentType: 'ID_CARD', documentLast4: '' })
+  passengerFieldsTouched.value = false
+  orderReviewReady.value = false
+  focusPassengerField(`passenger-name-${key}`)
+}
+
+function removePassenger(index) {
+  if (passengers.value.length === 1) {
+    return
+  }
+  passengers.value.splice(index, 1)
+  orderReviewReady.value = false
+  grabError.value = ''
 }
 
 function formatMoney(cents) {
@@ -448,27 +498,28 @@ function prepareOrderReview() {
     grabError.value = '请先选择活动和票档'
     return
   }
-  if (!passengerNameValid.value) {
-    grabError.value = '请填写 2 到 30 个字符的购票人姓名'
-    focusPassengerField('passenger-name')
-    return
-  }
-  if (!passengerDocumentLast4Valid.value) {
-    grabError.value = '请填写证件号码后四位，仅支持字母或数字'
-    focusPassengerField('passenger-document-last4')
+  const invalidIndex = passengerValidation.value.findIndex(
+    (result) => !result.nameValid || !result.documentValid,
+  )
+  if (invalidIndex >= 0) {
+    const result = passengerValidation.value[invalidIndex]
+    const passenger = passengers.value[invalidIndex]
+    grabError.value = `请补全第 ${invalidIndex + 1} 位购票人的${result.nameValid ? '证件信息' : '姓名'}`
+    focusPassengerField(result.nameValid
+      ? `passenger-document-last4-${passenger.key}`
+      : `passenger-name-${passenger.key}`)
     return
   }
 
-  passengerName.value = normalizedPassengerName.value
-  passengerDocumentLast4.value = normalizedPassengerDocumentLast4.value
-  savePassengerProfile()
+  passengers.value = normalizedPassengers.value
+  savePassengerProfiles()
   orderReviewReady.value = true
 }
 
 function editOrderInformation() {
   orderReviewReady.value = false
   grabError.value = ''
-  focusPassengerField('passenger-name')
+  focusPassengerField(`passenger-name-${passengers.value[0].key}`)
 }
 
 function getOrderContext(targetOrder) {
@@ -608,6 +659,7 @@ async function loadMyOrders() {
 function continuePayment(targetOrder) {
   order.value = targetOrder
   ticket.value = null
+  issuedTickets.value = []
   selectTicket(targetOrder.sessionId, targetOrder.ticketCategoryId)
   activeView.value = 'booking'
 }
@@ -615,15 +667,21 @@ function continuePayment(targetOrder) {
 function buyAgain(targetOrder) {
   order.value = null
   ticket.value = null
+  issuedTickets.value = []
   ticketLookupCode.value = ''
-  passengerName.value = targetOrder.passengerName ?? passengerName.value
-  passengerDocumentType.value = targetOrder.passengerDocumentType ?? passengerDocumentType.value
-  passengerDocumentLast4.value = targetOrder.passengerDocumentLast4 ?? passengerDocumentLast4.value
+  if (targetOrder.passengers?.length) {
+    passengers.value = targetOrder.passengers.map((passenger) => ({
+      key: `repeat-${passenger.id}`,
+      name: passenger.name,
+      documentType: passenger.documentType,
+      documentLast4: passenger.documentLast4,
+    }))
+  }
   selectTicket(targetOrder.sessionId, targetOrder.ticketCategoryId)
   activeView.value = 'booking'
 }
 
-async function viewOrderTicket(targetOrder) {
+async function viewOrderTickets(targetOrder) {
   ticketLookupLoading.value = true
   ticketLookupError.value = ''
   order.value = targetOrder
@@ -632,13 +690,14 @@ async function viewOrderTicket(targetOrder) {
     const { payload, traceId: nextTraceId } = await requestJson(
       '打开订单电子票',
       'GET',
-      `/api/users/${userId.value}/orders/${targetOrder.id}/ticket`,
+      `/api/users/${userId.value}/orders/${targetOrder.id}/tickets`,
       {},
-      (data) => `${data.ticketCode} ${data.status}`,
+      (data) => `电子票 ${data?.length ?? 0} 张`,
     )
     ticketLookupTraceId.value = nextTraceId
-    ticket.value = payload.data
-    ticketLookupCode.value = ticket.value.ticketCode
+    issuedTickets.value = payload.data ?? []
+    ticket.value = issuedTickets.value[0] ?? null
+    ticketLookupCode.value = ticket.value?.ticketCode ?? ''
   } catch (caught) {
     ticketLookupError.value = caught instanceof Error ? caught.message : '电子票加载失败'
   } finally {
@@ -647,7 +706,7 @@ async function viewOrderTicket(targetOrder) {
 }
 
 async function grabTicket() {
-  if (!orderReviewReady.value || !selectedTicket.value || !passengerProfileValid.value) {
+  if (!orderReviewReady.value || !selectedTicket.value || !passengerProfilesValid.value) {
     prepareOrderReview()
     return
   }
@@ -657,6 +716,7 @@ async function grabTicket() {
   grabTraceId.value = ''
   order.value = null
   ticket.value = null
+  issuedTickets.value = []
   ticketLookupCode.value = ''
   payError.value = ''
   payTraceId.value = ''
@@ -666,7 +726,7 @@ async function grabTicket() {
   verifyTraceId.value = ''
   adminError.value = ''
   adminOrders.value = []
-  adminTicketByOrder.value = null
+  adminTicketsByOrder.value = []
   adminTicketByCode.value = null
 
   try {
@@ -682,10 +742,11 @@ async function grabTicket() {
           userId: Number(userId.value),
           sessionId: selectedSessionId.value,
           ticketCategoryId: selectedTicketCategoryId.value,
-          quantity: 1,
-          passengerName: normalizedPassengerName.value,
-          passengerDocumentType: passengerDocumentType.value,
-          passengerDocumentLast4: normalizedPassengerDocumentLast4.value,
+          passengers: normalizedPassengers.value.map((passenger) => ({
+            name: passenger.name,
+            documentType: passenger.documentType,
+            documentLast4: passenger.documentLast4,
+          })),
         }),
       },
       (data) => `orderId=${data.id} ${data.status}`,
@@ -750,13 +811,13 @@ async function loadAdminTicketByOrder() {
     const { payload, traceId: nextTraceId } = await requestJson(
       '按订单查票',
       'GET',
-      `/api/admin/orders/${order.value.id}/ticket`,
+      `/api/admin/orders/${order.value.id}/tickets`,
       { headers: adminHeaders() },
-      (data) => `ticketCode=${data.ticketCode}`,
+      (data) => `电子票 ${data?.length ?? 0} 张`,
     )
     adminTicketByOrderTraceId.value = nextTraceId
 
-    adminTicketByOrder.value = payload.data
+    adminTicketsByOrder.value = payload.data ?? []
   } catch (caught) {
     adminError.value = caught instanceof Error ? caught.message : '订单电子票查询失败'
   } finally {
@@ -816,6 +877,7 @@ async function payOrder() {
   payError.value = ''
   payTraceId.value = ''
   ticket.value = null
+  issuedTickets.value = []
   ticketLookupError.value = ''
   verifyError.value = ''
 
@@ -825,12 +887,13 @@ async function payOrder() {
       'POST',
       `/api/users/${userId.value}/orders/${order.value.id}/pay`,
       {},
-      (data) => `ticketCode=${data.ticketCode}`,
+      (data) => `电子票 ${data?.length ?? 0} 张`,
     )
     payTraceId.value = nextTraceId
 
-    ticket.value = payload.data
-    ticketLookupCode.value = ticket.value.ticketCode
+    issuedTickets.value = payload.data ?? []
+    ticket.value = issuedTickets.value[0] ?? null
+    ticketLookupCode.value = ticket.value?.ticketCode ?? ''
     await refreshOrder(order.value.id)
     await loadMyOrders()
     activeView.value = 'tickets'
@@ -871,6 +934,7 @@ async function lookupTicket() {
     ticketLookupTraceId.value = nextTraceId
 
     ticket.value = payload.data
+    issuedTickets.value = [ticket.value]
     ticketLookupCode.value = ticket.value.ticketCode
     if (activeView.value === 'tickets') {
       await refreshOrder(ticket.value.orderId)
@@ -913,6 +977,9 @@ async function verifyTicket() {
     verifyTraceId.value = nextTraceId
 
     ticket.value = payload.data
+    issuedTickets.value = issuedTickets.value.map((issued) =>
+      issued.ticketCode === ticket.value.ticketCode ? ticket.value : issued,
+    )
     ticketLookupCode.value = ticket.value.ticketCode
   } catch (caught) {
     verifyError.value = caught instanceof Error ? caught.message : '验票失败'
@@ -1017,7 +1084,7 @@ onUnmounted(() => {
           <span>当前订单</span>
           <strong>{{ order ? `#${order.id} · ${orderStatusLabel(order.status)}` : '尚未下单' }}</strong>
           <p v-if="order?.status === 'PENDING_PAYMENT'">剩余支付时间 {{ orderCountdown }}</p>
-          <p v-else>{{ ticket ? `电子票 ${ticket.ticketCode} · ${ticketStatusLabel(ticket.status)}` : '支付后生成电子票' }}</p>
+          <p v-else>{{ issuedTickets.length ? `${issuedTickets.length} 张电子票 · 一人一码` : '支付后逐人生成电子票' }}</p>
         </article>
 
         <article class="boundary-card">
@@ -1045,8 +1112,8 @@ onUnmounted(() => {
               <p class="eyebrow">本轮验收摘要</p>
               <h2>把 orderId、ticketCode、状态和 traceId 放在第一屏</h2>
             </div>
-            <span class="result-badge" :class="{ danger: !order || ticket?.status !== 'VERIFIED' }">
-              {{ order && ticket?.status === 'VERIFIED' ? '链路完成' : '待补齐' }}
+            <span class="result-badge" :class="{ danger: !order || !allIssuedTicketsVerified }">
+              {{ order && allIssuedTicketsVerified ? '链路完成' : '待补齐' }}
             </span>
           </div>
 
@@ -1165,7 +1232,7 @@ onUnmounted(() => {
       <div class="panel-header">
         <div>
           <h2>填写购票人与核对订单</h2>
-          <p class="event-meta">当前采用单人单票模型，一位购票人对应一张电子票。</p>
+          <p class="event-meta">每笔订单最多 5 位购票人，支付后每人生成一张独立电子票。</p>
         </div>
       </div>
 
@@ -1184,56 +1251,84 @@ onUnmounted(() => {
             <strong>本机演示用户 #{{ userId }}</strong>
           </div>
 
-          <div class="passenger-fields">
-            <label for="passenger-name">
-              <span>购票人姓名 *</span>
-              <input
-                id="passenger-name"
-                v-model="passengerName"
-                type="text"
-                maxlength="30"
-                autocomplete="name"
-                :disabled="orderReviewReady"
-                :aria-invalid="passengerFieldsTouched && !passengerNameValid"
-                @input="orderReviewReady = false"
-              />
-              <small v-if="passengerFieldsTouched && !passengerNameValid" class="field-error">
-                请填写 2 到 30 个字符的姓名。
-              </small>
-            </label>
+          <div class="passenger-list">
+            <article v-for="(passenger, index) in passengers" :key="passenger.key" class="passenger-profile-card">
+              <div class="passenger-profile-heading">
+                <div>
+                  <strong>购票人 {{ index + 1 }}</strong>
+                  <span>对应第 {{ index + 1 }} 张电子票</span>
+                </div>
+                <button
+                  v-if="!orderReviewReady && passengers.length > 1"
+                  type="button"
+                  class="text-action danger"
+                  @click="removePassenger(index)"
+                >
+                  移除
+                </button>
+              </div>
 
-            <label for="passenger-document-type">
-              <span>证件类型 *</span>
-              <select
-                id="passenger-document-type"
-                v-model="passengerDocumentType"
-                :disabled="orderReviewReady"
-                @change="orderReviewReady = false"
-              >
-                <option value="ID_CARD">居民身份证</option>
-                <option value="PASSPORT">护照</option>
-                <option value="OTHER">其他证件</option>
-              </select>
-            </label>
+              <div class="passenger-fields">
+                <label :for="`passenger-name-${passenger.key}`">
+                  <span>姓名 *</span>
+                  <input
+                    :id="`passenger-name-${passenger.key}`"
+                    v-model="passenger.name"
+                    type="text"
+                    maxlength="30"
+                    autocomplete="name"
+                    :disabled="orderReviewReady"
+                    :aria-invalid="passengerFieldsTouched && !passengerValidation[index].nameValid"
+                    @input="orderReviewReady = false"
+                  />
+                  <small v-if="passengerFieldsTouched && !passengerValidation[index].nameValid" class="field-error">
+                    请填写 2 到 30 个字符的姓名。
+                  </small>
+                </label>
 
-            <label for="passenger-document-last4">
-              <span>证件号码后四位 *</span>
-              <input
-                id="passenger-document-last4"
-                v-model="passengerDocumentLast4"
-                type="text"
-                maxlength="4"
-                autocomplete="off"
-                class="document-last4-input"
-                :disabled="orderReviewReady"
-                :aria-invalid="passengerFieldsTouched && !passengerDocumentLast4Valid"
-                @input="orderReviewReady = false"
-              />
-              <small v-if="passengerFieldsTouched && !passengerDocumentLast4Valid" class="field-error">
-                请输入 4 位字母或数字。
-              </small>
-            </label>
+                <label :for="`passenger-document-type-${passenger.key}`">
+                  <span>证件类型 *</span>
+                  <select
+                    :id="`passenger-document-type-${passenger.key}`"
+                    v-model="passenger.documentType"
+                    :disabled="orderReviewReady"
+                    @change="orderReviewReady = false"
+                  >
+                    <option value="ID_CARD">居民身份证</option>
+                    <option value="PASSPORT">护照</option>
+                    <option value="OTHER">其他证件</option>
+                  </select>
+                </label>
+
+                <label :for="`passenger-document-last4-${passenger.key}`">
+                  <span>证件后四位 *</span>
+                  <input
+                    :id="`passenger-document-last4-${passenger.key}`"
+                    v-model="passenger.documentLast4"
+                    type="text"
+                    maxlength="4"
+                    autocomplete="off"
+                    class="document-last4-input"
+                    :disabled="orderReviewReady"
+                    :aria-invalid="passengerFieldsTouched && !passengerValidation[index].documentValid"
+                    @input="orderReviewReady = false"
+                  />
+                  <small v-if="passengerFieldsTouched && !passengerValidation[index].documentValid" class="field-error">
+                    请输入 4 位字母或数字。
+                  </small>
+                </label>
+              </div>
+            </article>
           </div>
+
+          <button
+            v-if="!orderReviewReady && passengers.length < 5"
+            type="button"
+            class="secondary-action add-passenger-action"
+            @click="addPassenger"
+          >
+            添加购票人
+          </button>
 
           <p class="privacy-note">为避免演示项目收集敏感信息，这里不输入和保存完整证件号码。</p>
 
@@ -1275,17 +1370,25 @@ onUnmounted(() => {
             </div>
             <div>
               <dt>购票人</dt>
-              <dd>{{ passengerNameValid ? normalizedPassengerName : '待填写' }}</dd>
+              <dd>{{ passengers.length }} 位</dd>
             </div>
             <div>
               <dt>票数</dt>
-              <dd>1 张</dd>
+              <dd>{{ passengers.length }} 张</dd>
             </div>
             <div>
-              <dt>票价</dt>
-              <dd>{{ formatMoney(orderPreviewAmount) }}</dd>
+              <dt>单价</dt>
+              <dd>{{ formatMoney(selectedTicket?.category.priceCents) }}</dd>
             </div>
           </dl>
+
+          <div class="receipt-passenger-list">
+            <div v-for="(passenger, index) in normalizedPassengers" :key="passenger.key">
+              <span>第 {{ index + 1 }} 张</span>
+              <strong>{{ passenger.name || '待填写' }}</strong>
+              <small>{{ passengerDocumentTypeLabel(passenger.documentType) }}尾号 {{ passenger.documentLast4 || '待填写' }}</small>
+            </div>
+          </div>
 
           <div class="purchase-checklist" aria-live="polite">
             <div v-for="item in passengerChecks" :key="item.key" :class="{ passed: item.passed }">
@@ -1297,7 +1400,7 @@ onUnmounted(() => {
           <div class="receipt-total">
             <span>应付合计</span>
             <strong>{{ formatMoney(orderPreviewAmount) }}</strong>
-            <small>票价 {{ formatMoney(orderPreviewAmount) }} × 1 张</small>
+            <small>票价 {{ formatMoney(selectedTicket?.category.priceCents) }} × {{ passengers.length }} 张</small>
           </div>
 
           <button
@@ -1323,7 +1426,7 @@ onUnmounted(() => {
           <span>应付金额</span>
           <strong>{{ formatMoney(order.amountCents) }}</strong>
           <span>购票人</span>
-          <strong>{{ order.passengerName }} · {{ passengerDocumentTypeLabel(order.passengerDocumentType) }}尾号 {{ order.passengerDocumentLast4 }}</strong>
+          <strong>{{ order.passengers.map((passenger) => passenger.name).join('、') }}</strong>
           <span>剩余时间</span>
           <strong>{{ order.status === 'PENDING_PAYMENT' ? orderCountdown : '已结束' }}</strong>
         </div>
@@ -1346,7 +1449,7 @@ onUnmounted(() => {
               {{ currentOrderContext?.category.name ?? '已选票档' }} · {{ order.quantity ?? 1 }} 张 ·
               {{ formatMoney(order.amountCents) }}
             </p>
-            <p class="event-meta">购票人 {{ order.passengerName ?? '历史演示用户' }}</p>
+            <p class="event-meta">购票人 {{ order.passengers.map((passenger) => passenger.name).join('、') }}</p>
             <p v-if="order.status === 'PENDING_PAYMENT'" class="payment-deadline">
               请在 {{ orderCountdown }} 内完成支付
             </p>
@@ -1366,16 +1469,18 @@ onUnmounted(() => {
       </div>
 
       <p v-if="payError" class="error">{{ payError }}</p>
-      <div v-if="ticket" class="ticket-result">
-        <p class="box-title">电子票</p>
-        <div class="result-grid">
-          <span>ticketCode</span>
-          <strong>{{ ticket.ticketCode }}</strong>
-          <span>票状态</span>
-          <strong>{{ ticketStatusLabel(ticket.status) }}</strong>
-          <span>orderId</span>
-          <strong>{{ ticket.orderId }}</strong>
-        </div>
+      <div v-if="issuedTickets.length" class="issued-ticket-list">
+        <article v-for="issued in issuedTickets" :key="issued.ticketCode" class="ticket-result">
+          <p class="box-title">{{ issued.passengerName }}的电子票</p>
+          <div class="result-grid">
+            <span>ticketCode</span>
+            <strong>{{ issued.ticketCode }}</strong>
+            <span>票状态</span>
+            <strong>{{ ticketStatusLabel(issued.status) }}</strong>
+            <span>证件尾号</span>
+            <strong>{{ issued.passengerDocumentLast4 }}</strong>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -1410,7 +1515,7 @@ onUnmounted(() => {
               {{ formatDateTime(getOrderContext(item)?.session.startTime) }} ·
               {{ getOrderContext(item)?.category.name ?? `票档 ${item.ticketCategoryId}` }} · {{ item.quantity ?? 1 }} 张
             </p>
-            <p>购票人 {{ item.passengerName ?? '历史演示用户' }} · {{ passengerDocumentTypeLabel(item.passengerDocumentType ?? 'OTHER') }}尾号 {{ item.passengerDocumentLast4 ?? '0000' }}</p>
+            <p>购票人 {{ item.passengers.map((passenger) => passenger.name).join('、') }}</p>
             <small>订单 #{{ item.id }} · 下单于 {{ formatDateTime(item.createdTime) }}</small>
           </div>
           <strong class="order-amount">{{ formatMoney(item.amountCents) }}</strong>
@@ -1428,7 +1533,7 @@ onUnmounted(() => {
               type="button"
               class="secondary-action"
               :disabled="ticketLookupLoading"
-              @click="viewOrderTicket(item)"
+              @click="viewOrderTickets(item)"
             >
               查看电子票
             </button>
@@ -1439,17 +1544,19 @@ onUnmounted(() => {
         </article>
       </div>
 
-      <div v-if="ticket && order" class="ticket-result verified-result ticket-pass">
-        <div>
-          <p class="box-title">{{ currentOrderContext?.event.name ?? '电子票' }}</p>
-          <strong>{{ currentOrderContext?.category.name ?? '入场凭证' }} · {{ ticketStatusLabel(ticket.status) }}</strong>
-          <p>{{ formatDateTime(currentOrderContext?.session.startTime) }} · {{ currentOrderContext?.event.location }}</p>
-          <p>购票人 {{ order.passengerName ?? '历史演示用户' }}</p>
-        </div>
-        <div class="ticket-code-block">
-          <span>电子票码</span>
-          <strong>{{ ticket.ticketCode }}</strong>
-        </div>
+      <div v-if="issuedTickets.length && order" class="issued-ticket-list ticket-pass-list">
+        <article v-for="issued in issuedTickets" :key="issued.ticketCode" class="ticket-result verified-result ticket-pass">
+          <div>
+            <p class="box-title">{{ currentOrderContext?.event.name ?? '电子票' }}</p>
+            <strong>{{ issued.passengerName }} · {{ ticketStatusLabel(issued.status) }}</strong>
+            <p>{{ formatDateTime(currentOrderContext?.session.startTime) }} · {{ currentOrderContext?.event.location }}</p>
+            <p>{{ passengerDocumentTypeLabel(issued.passengerDocumentType) }}尾号 {{ issued.passengerDocumentLast4 }}</p>
+          </div>
+          <div class="ticket-code-block">
+            <span>独立电子票码</span>
+            <strong>{{ issued.ticketCode }}</strong>
+          </div>
+        </article>
       </div>
 
       <details class="manual-ticket-lookup">
@@ -1517,6 +1624,8 @@ onUnmounted(() => {
           <strong>{{ ticketStatusLabel(ticket.status) }}</strong>
           <span>orderId</span>
           <strong>{{ ticket.orderId }}</strong>
+          <span>购票人</span>
+          <strong>{{ ticket.passengerName }} · 尾号 {{ ticket.passengerDocumentLast4 }}</strong>
           <span>验票员</span>
           <strong>{{ ticket.verifierId ?? '未核验' }}</strong>
         </div>
@@ -1806,16 +1915,18 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div v-if="adminTicketByOrder" class="ticket-result">
-          <p class="box-title">订单对应电子票</p>
-          <div class="result-grid">
-            <span>ticketCode</span>
-            <strong>{{ adminTicketByOrder.ticketCode }}</strong>
-            <span>票状态</span>
-            <strong>{{ adminTicketByOrder.status }}</strong>
-            <span>orderId</span>
-            <strong>{{ adminTicketByOrder.orderId }}</strong>
-          </div>
+        <div v-if="adminTicketsByOrder.length" class="issued-ticket-list admin-ticket-list">
+          <article v-for="issued in adminTicketsByOrder" :key="issued.ticketCode" class="ticket-result">
+            <p class="box-title">{{ issued.passengerName }}的电子票</p>
+            <div class="result-grid">
+              <span>ticketCode</span>
+              <strong>{{ issued.ticketCode }}</strong>
+              <span>票状态</span>
+              <strong>{{ issued.status }}</strong>
+              <span>证件尾号</span>
+              <strong>{{ issued.passengerDocumentLast4 }}</strong>
+            </div>
+          </article>
         </div>
 
         <div v-if="adminTicketByCode" class="ticket-result verified-result">
@@ -1825,6 +1936,8 @@ onUnmounted(() => {
             <strong>{{ adminTicketByCode.ticketCode }}</strong>
             <span>票状态</span>
             <strong>{{ adminTicketByCode.status }}</strong>
+            <span>购票人</span>
+            <strong>{{ adminTicketByCode.passengerName }}</strong>
             <span>验票员</span>
             <strong>{{ adminTicketByCode.verifierId ?? '未核验' }}</strong>
           </div>

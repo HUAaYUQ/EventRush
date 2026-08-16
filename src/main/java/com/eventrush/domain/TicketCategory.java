@@ -9,11 +9,12 @@ public record TicketCategory(
         int remainingStock
 ) {
 
-    public TicketCategory deductOne() {
-        return new TicketCategory(id, sessionId, name, priceCents, totalStock, remainingStock - 1);
+    public TicketCategory deduct(int quantity) {
+        return new TicketCategory(id, sessionId, name, priceCents, totalStock, remainingStock - quantity);
     }
 
-    public TicketCategory releaseOne() {
-        return new TicketCategory(id, sessionId, name, priceCents, totalStock, Math.min(totalStock, remainingStock + 1));
+    public TicketCategory release(int quantity) {
+        return new TicketCategory(id, sessionId, name, priceCents, totalStock,
+                Math.min(totalStock, remainingStock + quantity));
     }
 }

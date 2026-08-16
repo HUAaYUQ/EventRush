@@ -1,4 +1,4 @@
-/* finesse · register=product · A=sage+ink · B=700/400 · C=passenger-confirmation-flow
+/* finesse · register=product · A=sage+ink · B=700/400 · C=multi-passenger-manifest
  * D=feedback-only · E=tinted-ledger · SOUL=5 SPECTACLE=1 DENSITY=7 */
 :root {
   --bg: #eef0ec;
@@ -694,6 +694,62 @@ h2 {
   gap: 12px;
 }
 
+.passenger-list {
+  display: grid;
+  gap: 12px;
+}
+
+.passenger-profile-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-soft);
+}
+
+.passenger-profile-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.passenger-profile-heading > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.passenger-profile-heading strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.passenger-profile-heading span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.text-action {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  color: var(--green);
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.text-action.danger {
+  color: var(--red);
+}
+
+.add-passenger-action {
+  justify-self: start;
+}
+
 .passenger-fields label {
   display: grid;
   align-content: start;
@@ -803,6 +859,38 @@ h2 {
   font-weight: 700;
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.receipt-passenger-list {
+  display: grid;
+  gap: 8px;
+}
+
+.receipt-passenger-list > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.receipt-passenger-list span,
+.receipt-passenger-list small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.receipt-passenger-list strong,
+.receipt-passenger-list small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.receipt-passenger-list small {
+  text-align: right;
 }
 
 .purchase-checklist {
@@ -1087,6 +1175,23 @@ h2 {
 
 .verified-result {
   background: var(--green-soft);
+}
+
+.issued-ticket-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.issued-ticket-list .ticket-result {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.ticket-pass-list,
+.admin-ticket-list {
+  grid-template-columns: 1fr;
 }
 
 .payment-deadline {
@@ -1705,6 +1810,15 @@ h2 {
 
   .passenger-fields {
     grid-template-columns: 1fr;
+  }
+
+  .receipt-passenger-list > div {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .receipt-passenger-list small {
+    grid-column: 2;
+    text-align: left;
   }
 
   .review-ready-message {

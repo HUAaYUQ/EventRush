@@ -26,6 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Sql(statements = {
         "DELETE FROM electronic_ticket",
+        "DELETE FROM ticket_order_passenger",
         "DELETE FROM async_grab_request",
         "DELETE FROM ticket_order"
 }, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
@@ -81,7 +82,7 @@ class ApiResponseTest {
                 .andExpect(header().string("X-Trace-Id", "trace-validation"))
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.message").value("passengerDocumentLast4 is required"))
+                .andExpect(jsonPath("$.message").value("passengers is required"))
                 .andExpect(jsonPath("$.traceId").value("trace-validation"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -95,18 +96,28 @@ class ApiResponseTest {
                                   "userId": 9820,
                                   "sessionId": 101,
                                   "ticketCategoryId": 1001,
-                                  "quantity": 1,
-                                  "passengerName": "王芳",
-                                  "passengerDocumentType": "ID_CARD",
-                                  "passengerDocumentLast4": "6x9p"
+                                  "passengers": [
+                                    {
+                                      "name": "王芳",
+                                      "documentType": "ID_CARD",
+                                      "documentLast4": "6x9p"
+                                    },
+                                    {
+                                      "name": "赵强",
+                                      "documentType": "PASSPORT",
+                                      "documentLast4": "7a8b"
+                                    }
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.amountCents").value(19900))
-                .andExpect(jsonPath("$.data.quantity").value(1))
-                .andExpect(jsonPath("$.data.passengerName").value("王芳"))
-                .andExpect(jsonPath("$.data.passengerDocumentType").value("ID_CARD"))
-                .andExpect(jsonPath("$.data.passengerDocumentLast4").value("6X9P"));
+                .andExpect(jsonPath("$.data.amountCents").value(39800))
+                .andExpect(jsonPath("$.data.quantity").value(2))
+                .andExpect(jsonPath("$.data.passengers", hasSize(2)))
+                .andExpect(jsonPath("$.data.passengers[0].name").value("王芳"))
+                .andExpect(jsonPath("$.data.passengers[0].documentType").value("ID_CARD"))
+                .andExpect(jsonPath("$.data.passengers[0].documentLast4").value("6X9P"))
+                .andExpect(jsonPath("$.data.passengers[1].name").value("赵强"));
     }
 
     @Test
@@ -118,10 +129,13 @@ class ApiResponseTest {
                                   "userId": 9821,
                                   "sessionId": 101,
                                   "ticketCategoryId": 1001,
-                                  "quantity": 1,
-                                  "passengerName": "王芳",
-                                  "passengerDocumentType": "UNKNOWN",
-                                  "passengerDocumentLast4": "1234"
+                                  "passengers": [
+                                    {
+                                      "name": "王芳",
+                                      "documentType": "UNKNOWN",
+                                      "documentLast4": "1234"
+                                    }
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
@@ -132,7 +146,7 @@ class ApiResponseTest {
     @Test
     void adminQueriesOrdersAndTickets() throws Exception {
         TicketOrder order = ticketingService.grabTicket(9800L, 101L, 1001L);
-        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+        ElectronicTicket ticket = ticketingService.payOrder(order.id()).get(0);
 
         mockMvc.perform(get("/api/admin/users/9800/orders")
                         .header("X-Admin-Key", ADMIN_KEY)
@@ -143,13 +157,13 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.data[0].id").value(order.id()))
                 .andExpect(jsonPath("$.data[0].status").value("PAID"));
 
-        mockMvc.perform(get("/api/admin/orders/%s/ticket".formatted(order.id()))
+        mockMvc.perform(get("/api/admin/orders/%s/tickets".formatted(order.id()))
                         .header("X-Admin-Key", ADMIN_KEY)
                         .header("X-Trace-Id", "trace-admin-order-ticket"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()))
-                .andExpect(jsonPath("$.data.status").value("VALID"));
+                .andExpect(jsonPath("$.data[0].ticketCode").value(ticket.ticketCode()))
+                .andExpect(jsonPath("$.data[0].status").value("VALID"));
 
         mockMvc.perform(get("/api/admin/tickets/%s".formatted(ticket.ticketCode()))
                         .header("X-Admin-Key", ADMIN_KEY)
@@ -163,18 +177,18 @@ class ApiResponseTest {
     @Test
     void userCanRecoverOrdersAndTicketFromOrderList() throws Exception {
         TicketOrder order = ticketingService.grabTicket(9810L, 101L, 1001L);
-        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+        ElectronicTicket ticket = ticketingService.payOrder(order.id()).get(0);
 
         mockMvc.perform(get("/api/users/9810/orders").header("X-Trace-Id", "trace-user-orders"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].id").value(order.id()))
                 .andExpect(jsonPath("$.data[0].amountCents").value(19900));
 
-        mockMvc.perform(get("/api/users/9810/orders/%s/ticket".formatted(order.id())))
+        mockMvc.perform(get("/api/users/9810/orders/%s/tickets".formatted(order.id())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()));
+                .andExpect(jsonPath("$.data[0].ticketCode").value(ticket.ticketCode()));
 
-        mockMvc.perform(get("/api/users/9811/orders/%s/ticket".formatted(order.id())))
+        mockMvc.perform(get("/api/users/9811/orders/%s/tickets".formatted(order.id())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
 

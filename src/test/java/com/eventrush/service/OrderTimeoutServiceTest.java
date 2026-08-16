@@ -1,7 +1,10 @@
 package com.eventrush.service;
 
 import com.eventrush.domain.OrderStatus;
+import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @Sql(statements = {
         "DELETE FROM electronic_ticket",
+        "DELETE FROM ticket_order_passenger",
         "DELETE FROM ticket_order"
 }, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 class OrderTimeoutServiceTest {
@@ -31,7 +35,12 @@ class OrderTimeoutServiceTest {
 
     @Test
     void cancelsExpiredPendingOrderAndReleasesStock() {
-        TicketOrder order = ticketingService.grabTicket(600L, 101L, 1001L);
+        TicketOrder order = ticketingService.grabTicket(600L, 101L, 1001L, List.of(
+                new TicketPassenger(null, null, 0, "张三", PassengerDocumentType.ID_CARD, "1234"),
+                new TicketPassenger(null, null, 0, "李四", PassengerDocumentType.PASSPORT, "5678")
+        ));
+
+        assertThat(eventCatalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(48);
 
         int canceled = ticketingService.cancelExpiredOrders();
 

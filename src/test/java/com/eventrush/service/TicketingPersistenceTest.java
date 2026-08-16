@@ -4,7 +4,9 @@ import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
 import com.eventrush.domain.TicketStatus;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @Sql(statements = {
         "DELETE FROM electronic_ticket",
+        "DELETE FROM ticket_order_passenger",
         "DELETE FROM ticket_order"
 }, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 class TicketingPersistenceTest {
@@ -36,18 +39,19 @@ class TicketingPersistenceTest {
 
     @Test
     void persistsOrderAndPaymentStatus() {
-        TicketOrder order = ticketingService.grabTicket(
-                300L, 101L, 1001L, 1, "李雷", PassengerDocumentType.PASSPORT, "8X2P");
+        TicketOrder order = ticketingService.grabTicket(300L, 101L, 1001L, List.of(
+                passenger("李雷", PassengerDocumentType.PASSPORT, "8X2P"),
+                passenger("韩梅梅", PassengerDocumentType.ID_CARD, "1024")
+        ));
 
         assertThat(ticketOrderRepository.findById(order.id()))
                 .get()
                 .satisfies(persisted -> {
                     assertThat(persisted.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
-                    assertThat(persisted.amountCents()).isEqualTo(19900);
-                    assertThat(persisted.quantity()).isEqualTo(1);
-                    assertThat(persisted.passengerName()).isEqualTo("李雷");
-                    assertThat(persisted.passengerDocumentType()).isEqualTo(PassengerDocumentType.PASSPORT);
-                    assertThat(persisted.passengerDocumentLast4()).isEqualTo("8X2P");
+                    assertThat(persisted.amountCents()).isEqualTo(39800);
+                    assertThat(persisted.quantity()).isEqualTo(2);
+                    assertThat(persisted.passengers()).extracting(TicketPassenger::name)
+                            .containsExactly("李雷", "韩梅梅");
                 });
 
         ticketingService.payOrder(order.id());
@@ -70,7 +74,7 @@ class TicketingPersistenceTest {
     @Test
     void persistsTicketAndVerificationStatus() {
         TicketOrder order = ticketingService.grabTicket(302L, 101L, 1001L);
-        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+        ElectronicTicket ticket = ticketingService.payOrder(order.id()).get(0);
 
         assertThat(electronicTicketRepository.findByCode(ticket.ticketCode()))
                 .get()
@@ -94,14 +98,22 @@ class TicketingPersistenceTest {
     @Test
     void repeatedPaymentReturnsExistingTicket() {
         TicketOrder order = ticketingService.grabTicket(303L, 101L, 1001L);
-        ElectronicTicket first = ticketingService.payOrder(order.id());
+        List<ElectronicTicket> first = ticketingService.payOrder(order.id());
 
-        ElectronicTicket second = ticketingService.payOrder(order.id());
+        List<ElectronicTicket> second = ticketingService.payOrder(order.id());
 
-        assertThat(second.id()).isEqualTo(first.id());
-        assertThat(second.ticketCode()).isEqualTo(first.ticketCode());
-        assertThat(electronicTicketRepository.findByOrderId(order.id())).get()
+        assertThat(second).extracting(ElectronicTicket::id)
+                .containsExactlyElementsOf(first.stream().map(ElectronicTicket::id).toList());
+        assertThat(electronicTicketRepository.findByOrderId(order.id()))
                 .extracting(ElectronicTicket::ticketCode)
-                .isEqualTo(first.ticketCode());
+                .containsExactlyElementsOf(first.stream().map(ElectronicTicket::ticketCode).toList());
+    }
+
+    private TicketPassenger passenger(
+            String name,
+            PassengerDocumentType documentType,
+            String documentLast4
+    ) {
+        return new TicketPassenger(null, null, 0, name, documentType, documentLast4);
     }
 }

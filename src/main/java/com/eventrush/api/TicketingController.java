@@ -3,12 +3,12 @@ package com.eventrush.api;
 import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
 import com.eventrush.service.AsyncGrabService;
 import com.eventrush.service.TicketingService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -38,10 +38,16 @@ class TicketingController {
                 request.userId(),
                 request.sessionId(),
                 request.ticketCategoryId(),
-                request.quantity(),
-                request.passengerName(),
-                request.passengerDocumentType(),
-                request.passengerDocumentLast4()
+                request.passengers().stream()
+                        .map(passenger -> new TicketPassenger(
+                                null,
+                                null,
+                                0,
+                                passenger.name(),
+                                passenger.documentType(),
+                                passenger.documentLast4()
+                        ))
+                        .toList()
         );
     }
 
@@ -56,7 +62,7 @@ class TicketingController {
     }
 
     @PostMapping("/orders/{orderId}/pay")
-    ElectronicTicket payOrder(@PathVariable Long orderId) {
+    List<ElectronicTicket> payOrder(@PathVariable Long orderId) {
         return ticketingService.payOrder(orderId);
     }
 
@@ -76,13 +82,13 @@ class TicketingController {
     }
 
     @PostMapping("/users/{userId}/orders/{orderId}/pay")
-    ElectronicTicket payUserOrder(@PathVariable Long userId, @PathVariable Long orderId) {
+    List<ElectronicTicket> payUserOrder(@PathVariable Long userId, @PathVariable Long orderId) {
         return ticketingService.payOrderForUser(userId, orderId);
     }
 
-    @GetMapping("/users/{userId}/orders/{orderId}/ticket")
-    ElectronicTicket getUserOrderTicket(@PathVariable Long userId, @PathVariable Long orderId) {
-        return ticketingService.getTicketByOrderIdForUser(userId, orderId);
+    @GetMapping("/users/{userId}/orders/{orderId}/tickets")
+    List<ElectronicTicket> getUserOrderTickets(@PathVariable Long userId, @PathVariable Long orderId) {
+        return ticketingService.getTicketsByOrderIdForUser(userId, orderId);
     }
 
     @GetMapping("/tickets/{ticketCode}")
@@ -104,15 +110,19 @@ class TicketingController {
             @NotNull(message = "userId is required") Long userId,
             @NotNull(message = "sessionId is required") Long sessionId,
             @NotNull(message = "ticketCategoryId is required") Long ticketCategoryId,
-            @NotNull(message = "quantity is required")
-            @Min(value = 1, message = "quantity must be 1")
-            @Max(value = 1, message = "quantity must be 1") Integer quantity,
-            @NotBlank(message = "passengerName is required")
-            @Size(min = 2, max = 30, message = "passengerName length must be between 2 and 30") String passengerName,
-            @NotNull(message = "passengerDocumentType is required") PassengerDocumentType passengerDocumentType,
-            @NotBlank(message = "passengerDocumentLast4 is required")
-            @Pattern(regexp = "[A-Za-z0-9]{4}", message = "passengerDocumentLast4 must contain 4 letters or digits")
-            String passengerDocumentLast4
+            @NotEmpty(message = "passengers is required")
+            @Size(max = 5, message = "passengers size must be between 1 and 5")
+            List<@Valid PassengerRequest> passengers
+    ) {
+    }
+
+    record PassengerRequest(
+            @NotBlank(message = "passenger name is required")
+            @Size(min = 2, max = 30, message = "passenger name length must be between 2 and 30") String name,
+            @NotNull(message = "passenger documentType is required") PassengerDocumentType documentType,
+            @NotBlank(message = "passenger documentLast4 is required")
+            @Pattern(regexp = "[A-Za-z0-9]{4}", message = "passenger documentLast4 must contain 4 letters or digits")
+            String documentLast4
     ) {
     }
 

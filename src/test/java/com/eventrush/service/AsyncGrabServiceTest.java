@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @Sql(statements = {
         "DELETE FROM electronic_ticket",
+        "DELETE FROM ticket_order_passenger",
         "DELETE FROM async_grab_request",
         "DELETE FROM ticket_order"
 }, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)

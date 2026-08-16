@@ -4,7 +4,9 @@ import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
+import com.eventrush.domain.TicketPassenger;
 import com.eventrush.domain.TicketStatus;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,33 +25,39 @@ class TicketingServiceTest {
         catalogService.seedData();
         TicketingService ticketingService = new TicketingService(catalogService);
 
-        TicketOrder order = ticketingService.grabTicket(
-                1L, 101L, 1001L, 1, " 张三 ", PassengerDocumentType.ID_CARD, "a123");
-        ElectronicTicket ticket = ticketingService.payOrder(order.id());
-        ElectronicTicket verified = ticketingService.verifyTicket(ticket.ticketCode(), 99L);
+        TicketOrder order = ticketingService.grabTicket(1L, 101L, 1001L, List.of(
+                passenger(" 张三 ", PassengerDocumentType.ID_CARD, "a123"),
+                passenger("李四", PassengerDocumentType.PASSPORT, "9x8p")
+        ));
+        List<ElectronicTicket> tickets = ticketingService.payOrder(order.id());
+        ElectronicTicket verified = ticketingService.verifyTicket(tickets.get(0).ticketCode(), 99L);
 
         assertThat(order.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(order.unitPriceCents()).isEqualTo(19900);
-        assertThat(order.amountCents()).isEqualTo(19900);
-        assertThat(order.quantity()).isEqualTo(1);
-        assertThat(order.passengerName()).isEqualTo("张三");
-        assertThat(order.passengerDocumentType()).isEqualTo(PassengerDocumentType.ID_CARD);
-        assertThat(order.passengerDocumentLast4()).isEqualTo("A123");
-        assertThat(ticket.status()).isEqualTo(TicketStatus.VALID);
+        assertThat(order.amountCents()).isEqualTo(39800);
+        assertThat(order.quantity()).isEqualTo(2);
+        assertThat(order.passengers()).extracting(TicketPassenger::name).containsExactly("张三", "李四");
+        assertThat(order.passengers()).extracting(TicketPassenger::documentLast4).containsExactly("A123", "9X8P");
+        assertThat(tickets).hasSize(2).allMatch(ticket -> ticket.status() == TicketStatus.VALID);
+        assertThat(tickets).extracting(ElectronicTicket::ticketCode).doesNotHaveDuplicates();
         assertThat(verified.status()).isEqualTo(TicketStatus.VERIFIED);
         assertThat(verified.verifierId()).isEqualTo(99L);
+        assertThat(ticketingService.getTicket(tickets.get(1).ticketCode()).status()).isEqualTo(TicketStatus.VALID);
     }
 
     @Test
-    void rejectsQuantityThatCannotProduceOneTicketPerPassenger() {
+    void rejectsMoreThanFivePassengers() {
         EventCatalogService catalogService = new EventCatalogService();
         catalogService.seedData();
         TicketingService ticketingService = new TicketingService(catalogService);
 
-        assertThatThrownBy(() -> ticketingService.grabTicket(
-                1L, 101L, 1001L, 2, "张三", PassengerDocumentType.ID_CARD, "1234"))
+        List<TicketPassenger> passengers = java.util.stream.IntStream.rangeClosed(1, 6)
+                .mapToObj(index -> passenger("购票人" + index, PassengerDocumentType.OTHER, "%04d".formatted(index)))
+                .toList();
+
+        assertThatThrownBy(() -> ticketingService.grabTicket(1L, 101L, 1001L, passengers))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("当前阶段每笔订单仅支持 1 位购票人和 1 张电子票");
+                .hasMessage("每笔订单请选择 1 到 5 位购票人");
     }
 
     @Test
@@ -59,7 +67,7 @@ class TicketingServiceTest {
         TicketingService ticketingService = new TicketingService(catalogService);
 
         TicketOrder order = ticketingService.grabTicket(1L, 101L, 1001L);
-        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+        ElectronicTicket ticket = ticketingService.payOrder(order.id()).get(0);
         ticketingService.verifyTicket(ticket.ticketCode(), 99L);
 
         assertThatThrownBy(() -> ticketingService.verifyTicket(ticket.ticketCode(), 99L))
@@ -74,11 +82,13 @@ class TicketingServiceTest {
         TicketingService ticketingService = new TicketingService(catalogService);
         TicketOrder order = ticketingService.grabTicket(1L, 101L, 1001L);
 
-        ElectronicTicket first = ticketingService.payOrder(order.id());
-        ElectronicTicket second = ticketingService.payOrder(order.id());
+        List<ElectronicTicket> first = ticketingService.payOrder(order.id());
+        List<ElectronicTicket> second = ticketingService.payOrder(order.id());
 
-        assertThat(second.id()).isEqualTo(first.id());
-        assertThat(second.ticketCode()).isEqualTo(first.ticketCode());
+        assertThat(second).extracting(ElectronicTicket::id)
+                .containsExactlyElementsOf(first.stream().map(ElectronicTicket::id).toList());
+        assertThat(second).extracting(ElectronicTicket::ticketCode)
+                .containsExactlyElementsOf(first.stream().map(ElectronicTicket::ticketCode).toList());
     }
 
     @Test
@@ -153,5 +163,13 @@ class TicketingServiceTest {
         assertThat(successCount.get()).isEqualTo(10);
         assertThat(insufficientCount.get()).isEqualTo(30);
         assertThat(catalogService.getTicketCategory(101L, 1002L).remainingStock()).isZero();
+    }
+
+    private TicketPassenger passenger(
+            String name,
+            PassengerDocumentType documentType,
+            String documentLast4
+    ) {
+        return new TicketPassenger(null, null, 0, name, documentType, documentLast4);
     }
 }
