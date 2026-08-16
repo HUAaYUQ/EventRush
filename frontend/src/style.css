@@ -2417,6 +2417,37 @@ body:has([data-surface="customer"]) {
   font-size: 13px;
 }
 
+.catalog-selects {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.catalog-selects label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--customer-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.catalog-selects select {
+  min-height: 36px;
+  max-width: 180px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--customer-line);
+  border-radius: 5px;
+  color: var(--customer-ink);
+  background: var(--customer-surface);
+}
+
+.catalog-selects > span {
+  color: var(--customer-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .availability-tabs,
 .account-segments {
   display: flex;
@@ -2621,6 +2652,78 @@ body:has([data-surface="customer"]) {
 .purchase-notes p {
   color: var(--customer-muted);
   line-height: 1.7;
+}
+
+.event-description,
+.event-rules,
+.event-notices {
+  padding: 22px 0;
+  border-top: 1px solid var(--customer-line);
+}
+
+.event-description h2,
+.event-rules h2,
+.event-notices h2 {
+  margin-bottom: 10px;
+  font-size: 18px;
+}
+
+.event-description p {
+  color: var(--customer-muted);
+  line-height: 1.8;
+  white-space: pre-line;
+}
+
+.event-rules ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--customer-muted);
+  line-height: 1.65;
+}
+
+.event-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.event-section-heading span {
+  color: var(--customer-muted);
+  font-size: 12px;
+}
+
+.event-notices article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 16px;
+  padding: 13px 0;
+  border-top: 1px solid var(--customer-line);
+}
+
+.event-notices article:first-of-type {
+  margin-top: 2px;
+}
+
+.event-notices article strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.event-notices article time {
+  color: var(--customer-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.event-notices article p {
+  grid-column: 1 / -1;
+  color: var(--customer-muted);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-line;
 }
 
 .ticket-picker {
@@ -3214,6 +3317,23 @@ body:has([data-surface="customer"]) {
   .catalog-toolbar {
     align-items: flex-end;
     flex-direction: column-reverse;
+  }
+
+  .catalog-selects {
+    width: 100%;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .catalog-selects label {
+    flex: 1 1 150px;
+    justify-content: space-between;
+  }
+
+  .catalog-selects select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
   }
 
   .availability-tabs {

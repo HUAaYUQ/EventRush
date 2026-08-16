@@ -43,7 +43,16 @@ public class EventCatalogService {
                 LocalDateTime.now().plusDays(7).plusHours(2),
                 List.of(standard, vip)
         );
-        events.put(1L, new Event(1L, "校园音乐之夜", "大学生活动中心", "PUBLISHED", List.of(session)));
+        events.put(1L, new Event(
+                1L,
+                "校园音乐之夜",
+                "大学生活动中心",
+                "PUBLISHED",
+                List.of(session),
+                "在校园中央舞台听见乐队、民谣与夏夜。",
+                "/images/events/campus-music-night.jpg",
+                List.of()
+        ));
     }
 
     public List<Event> listEvents() {
@@ -98,7 +107,8 @@ public class EventCatalogService {
                 .map(session -> session.id().equals(sessionId)
                         ? deductFromSession(session, ticketCategoryId, quantity) : session)
                 .toList();
-        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions);
+        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions,
+                event.description(), event.posterUrl(), event.notices());
         events.put(updated.id(), updated);
         return getTicketCategory(sessionId, ticketCategoryId);
     }
@@ -112,7 +122,8 @@ public class EventCatalogService {
                 .map(session -> session.id().equals(sessionId)
                         ? releaseToSession(session, ticketCategoryId, quantity) : session)
                 .toList();
-        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions);
+        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions,
+                event.description(), event.posterUrl(), event.notices());
         events.put(updated.id(), updated);
         return getTicketCategory(sessionId, ticketCategoryId);
     }

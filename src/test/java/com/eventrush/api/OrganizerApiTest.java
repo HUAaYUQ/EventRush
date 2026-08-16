@@ -78,9 +78,21 @@ class OrganizerApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
 
+        mockMvc.perform(post("/api/organizer/events/%d/notices".formatted(eventId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"入场提醒","content":"请提前 30 分钟到场。"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("入场提醒"));
+
         mockMvc.perform(get("/api/events/%d".formatted(eventId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("Stage 53 发布演示"))
+                .andExpect(jsonPath("$.data.description").value("主办方发布闭环验收活动"))
+                .andExpect(jsonPath("$.data.posterUrl").value("/images/events/campus-music-night.jpg"))
+                .andExpect(jsonPath("$.data.notices[0].title").value("入场提醒"))
                 .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].name").value("预售票"));
     }
 

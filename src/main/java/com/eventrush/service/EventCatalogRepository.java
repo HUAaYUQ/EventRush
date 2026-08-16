@@ -84,7 +84,7 @@ public class EventCatalogRepository {
 
     public Optional<Event> findPublicEvent(Long eventId) {
         return jdbcTemplate.query("""
-                        SELECT id, name, location, status
+                        SELECT id, name, location, status, description, poster_url
                         FROM event_catalog
                         WHERE id = ? AND status = 'PUBLISHED'
                         """,
@@ -93,7 +93,10 @@ public class EventCatalogRepository {
                         resultSet.getString("name"),
                         resultSet.getString("location"),
                         resultSet.getString("status"),
-                        findSessions(resultSet.getLong("id"))
+                        findSessions(resultSet.getLong("id")),
+                        resultSet.getString("description"),
+                        resultSet.getString("poster_url"),
+                        findNotices(resultSet.getLong("id"))
                 ), eventId).stream().findFirst();
     }
 

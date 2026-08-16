@@ -43,6 +43,8 @@ const waitlistActionId = ref(null)
 const forcedWaitlistTicketKey = ref('')
 const searchQuery = ref('')
 const availabilityFilter = ref('all')
+const locationFilter = ref('all')
+const catalogSort = ref('soonest')
 const accountSegment = ref('all')
 const accountSelection = ref(null)
 const ticketLookupCode = ref('')
@@ -387,19 +389,30 @@ const currentEvent = computed(() => {
   return events.value.find((event) => event.id === eventId) ?? events.value[0] ?? null
 })
 
+const currentEventNotices = computed(() => currentEvent.value?.notices ?? [])
+
 const visibleEvents = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
-  return events.value.filter((event) => {
+  const filtered = events.value.filter((event) => {
     const categories = (event.sessions ?? []).flatMap((session) => session.ticketCategories ?? [])
     const available = categories.some((category) => category.remainingStock > 0)
     const matchesAvailability = availabilityFilter.value === 'all'
       || (availabilityFilter.value === 'available' && available)
       || (availabilityFilter.value === 'waitlist' && !available && categories.length > 0)
+    const matchesLocation = locationFilter.value === 'all' || event.location === locationFilter.value
     const matchesQuery = !query
       || `${event.name} ${event.location}`.toLowerCase().includes(query)
-    return matchesAvailability && matchesQuery
+    return matchesAvailability && matchesLocation && matchesQuery
+  })
+  return [...filtered].sort((left, right) => {
+    if (catalogSort.value === 'price') {
+      return eventStartingPriceCents(left) - eventStartingPriceCents(right)
+    }
+    return new Date(eventNextSession(left)?.startTime ?? 0) - new Date(eventNextSession(right)?.startTime ?? 0)
   })
 })
+
+const locationOptions = computed(() => [...new Set(events.value.map((event) => event.location).filter(Boolean))])
 
 const checkoutStage = computed(() => {
   if (waitlistResult.value && !order.value) return 'waitlist'
@@ -648,11 +661,24 @@ function eventRemainingStock(event) {
 }
 
 function eventStartingPrice(event) {
+  const price = eventStartingPriceCents(event)
+  return price !== null ? `${formatMoney(price)} 起` : '票价待确认'
+}
+
+function eventStartingPriceCents(event) {
   const prices = (event?.sessions ?? [])
     .flatMap((session) => session.ticketCategories ?? [])
     .map((category) => Number(category.priceCents))
     .filter((price) => Number.isFinite(price))
-  return prices.length ? `${formatMoney(Math.min(...prices))} 起` : '票价待确认'
+  return prices.length ? Math.min(...prices) : null
+}
+
+function eventPoster(event) {
+  return event?.['posterUrl'] || '/images/events/campus-music-night.jpg'
+}
+
+function eventImageAttrs(event, alt = '活动海报') {
+  return { src: eventPoster(event), alt }
 }
 
 function accountItemSegment(item) {
@@ -1617,7 +1643,23 @@ onUnmounted(() => {
           <button type="button" :class="{ active: availabilityFilter === 'available' }" @click="availabilityFilter = 'available'">正在售票</button>
           <button type="button" :class="{ active: availabilityFilter === 'waitlist' }" @click="availabilityFilter = 'waitlist'">可候补</button>
         </div>
-        <span>{{ visibleEvents.length }} 个结果</span>
+        <div class="catalog-selects">
+          <label>
+            <span>地点</span>
+            <select v-model="locationFilter" aria-label="按地点筛选">
+              <option value="all">全部地点</option>
+              <option v-for="location in locationOptions" :key="location" :value="location">{{ location }}</option>
+            </select>
+          </label>
+          <label>
+            <span>排序</span>
+            <select v-model="catalogSort" aria-label="活动排序">
+              <option value="soonest">最近场次</option>
+              <option value="price">起售价最低</option>
+            </select>
+          </label>
+          <span>{{ visibleEvents.length }} 个结果</span>
+        </div>
       </div>
 
       <p v-if="loading" class="customer-feedback">正在加载活动…</p>
@@ -1629,7 +1671,7 @@ onUnmounted(() => {
       <div v-else class="event-catalog">
         <article v-for="event in visibleEvents" :key="event.id" class="event-card" @click="openEvent(event)">
           <button type="button" class="event-card-hit" :aria-label="`查看${event.name}`" @click.stop="openEvent(event)"></button>
-          <img src="/images/events/campus-music-night.jpg" :alt="`${event.name} 活动现场`" />
+          <img v-bind="eventImageAttrs(event, `${event.name} 活动海报`)" />
           <div class="event-card-body">
             <div class="event-card-status">
               <span :class="{ waitlist: eventRemainingStock(event) === 0 }">
@@ -1734,7 +1776,7 @@ onUnmounted(() => {
       <p v-else-if="error" class="customer-feedback error">{{ error }}</p>
       <div v-else-if="currentEvent" class="event-detail-layout">
         <article class="event-story">
-          <img src="/images/events/campus-music-night.jpg" :alt="`${currentEvent.name} 活动现场`" />
+          <img v-bind="eventImageAttrs(currentEvent, `${currentEvent.name} 活动海报`)" />
           <div class="event-story-copy">
             <span class="sale-badge">{{ eventRemainingStock(currentEvent) > 0 ? '正在售票' : '开放候补' }}</span>
             <h1>{{ currentEvent.name }}</h1>
@@ -1743,16 +1785,32 @@ onUnmounted(() => {
               <div><dt>地点</dt><dd>{{ currentEvent.location }}</dd></div>
               <div><dt>入场</dt><dd>一人一票，电子票核验入场</dd></div>
             </dl>
-            <section class="purchase-notes">
-              <h2>购票须知</h2>
-              <p>每笔订单最多添加 5 位购票人。支付完成后，每位购票人会获得独立电子票码。</p>
+            <section v-if="currentEvent.description" class="event-description">
+              <h2>活动介绍</h2>
+              <p>{{ currentEvent.description }}</p>
+            </section>
+            <section class="event-rules">
+              <h2>购票与退改</h2>
+              <ul>
+                <li>每笔订单最多添加 5 位购票人，支付后每人获得独立电子票码。</li>
+                <li>未支付订单在倒计时结束后自动取消，释放的库存可重新购买。</li>
+                <li>已核验入场的电子票不可退票，其他售后以订单页显示为准。</li>
+              </ul>
+            </section>
+            <section v-if="currentEventNotices.length" class="event-notices">
+              <div class="event-section-heading"><h2>活动公告</h2><span>{{ currentEventNotices.length }} 条</span></div>
+              <article v-for="notice in currentEventNotices" :key="notice.id">
+                <strong>{{ notice.title }}</strong>
+                <time>{{ formatDateTime(notice.publishedTime) }}</time>
+                <p>{{ notice.content }}</p>
+              </article>
             </section>
           </div>
         </article>
 
         <aside class="ticket-picker" aria-label="选择场次和票档">
           <div class="ticket-picker-heading">
-            <span>选择票档</span>
+            <span>选场次与票档</span>
             <strong>{{ eventStartingPrice(currentEvent) }}</strong>
           </div>
           <div v-for="session in currentEvent.sessions" :key="session.id" class="picker-session">
