@@ -29,7 +29,7 @@ cold_start:
   re_entry: 距上次验收已经隔了一段时间，直接重新跑一条新链路，不需要补旧数据。
 
 home:
-  - 车票预订：活动票档选择、购票用户、提交订单、支付出票
+  - 车票预订：活动票档选择、购票人脱敏信息、订单核对、提交订单、支付出票
   - 我的电子票：ticketCode 查询、订单状态、电子票状态
   - 验票入口：票码输入、验票员 ID、入场核验结果
   - 工程证据：hook、本轮验收摘要、最近请求记录、压测证据、管理排查
@@ -93,8 +93,8 @@ entities:
     written_by: { id: system, session_id: system, name: system, remaining_stock: system }
     relations: [TicketCategory n-1 Session, TicketCategory 1-n TicketOrder]
   - name: TicketOrder
-    fields: [id, user_id, session_id, ticket_category_id, status, expire_time]
-    written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, status: system, expire_time: system }
+    fields: [id, user_id, session_id, ticket_category_id, quantity, passenger_name, passenger_document_type, passenger_document_last4, unit_price_cents, amount_cents, status, expire_time]
+    written_by: { id: system, user_id: user, session_id: user, ticket_category_id: user, quantity: user, passenger_name: user, passenger_document_type: user, passenger_document_last4: user, unit_price_cents: system, amount_cents: system, status: system, expire_time: system }
     relations: [TicketOrder 1-1 ElectronicTicket]
   - name: ElectronicTicket
     fields: [ticket_code, order_id, status, verifier_id]

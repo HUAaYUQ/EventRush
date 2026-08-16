@@ -2,6 +2,7 @@ package com.eventrush.service;
 
 import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
+import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketStatus;
 import java.util.concurrent.CountDownLatch;
@@ -22,16 +23,33 @@ class TicketingServiceTest {
         catalogService.seedData();
         TicketingService ticketingService = new TicketingService(catalogService);
 
-        TicketOrder order = ticketingService.grabTicket(1L, 101L, 1001L);
+        TicketOrder order = ticketingService.grabTicket(
+                1L, 101L, 1001L, 1, " 张三 ", PassengerDocumentType.ID_CARD, "a123");
         ElectronicTicket ticket = ticketingService.payOrder(order.id());
         ElectronicTicket verified = ticketingService.verifyTicket(ticket.ticketCode(), 99L);
 
         assertThat(order.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(order.unitPriceCents()).isEqualTo(19900);
         assertThat(order.amountCents()).isEqualTo(19900);
+        assertThat(order.quantity()).isEqualTo(1);
+        assertThat(order.passengerName()).isEqualTo("张三");
+        assertThat(order.passengerDocumentType()).isEqualTo(PassengerDocumentType.ID_CARD);
+        assertThat(order.passengerDocumentLast4()).isEqualTo("A123");
         assertThat(ticket.status()).isEqualTo(TicketStatus.VALID);
         assertThat(verified.status()).isEqualTo(TicketStatus.VERIFIED);
         assertThat(verified.verifierId()).isEqualTo(99L);
+    }
+
+    @Test
+    void rejectsQuantityThatCannotProduceOneTicketPerPassenger() {
+        EventCatalogService catalogService = new EventCatalogService();
+        catalogService.seedData();
+        TicketingService ticketingService = new TicketingService(catalogService);
+
+        assertThatThrownBy(() -> ticketingService.grabTicket(
+                1L, 101L, 1001L, 2, "张三", PassengerDocumentType.ID_CARD, "1234"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("当前阶段每笔订单仅支持 1 位购票人和 1 张电子票");
     }
 
     @Test

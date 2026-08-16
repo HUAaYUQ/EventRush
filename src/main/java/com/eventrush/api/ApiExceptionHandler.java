@@ -4,6 +4,7 @@ import com.eventrush.service.BusinessException;
 import java.util.Comparator;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -26,6 +27,16 @@ class ApiExceptionHandler {
                 .body(ApiResponse.error(
                         "VALIDATION_ERROR",
                         firstValidationMessage(exception)
+                ));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ApiResponse<Void>> handleUnreadableRequest(HttpMessageNotReadableException exception) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(
+                        "VALIDATION_ERROR",
+                        "请求字段格式不正确，请检查证件类型和 JSON 格式"
                 ));
     }
 

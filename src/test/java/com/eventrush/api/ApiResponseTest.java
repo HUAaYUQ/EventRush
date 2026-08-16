@@ -81,9 +81,52 @@ class ApiResponseTest {
                 .andExpect(header().string("X-Trace-Id", "trace-validation"))
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.message").value("sessionId is required"))
+                .andExpect(jsonPath("$.message").value("passengerDocumentLast4 is required"))
                 .andExpect(jsonPath("$.traceId").value("trace-validation"))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void createsOrderWithMaskedPassengerSnapshot() throws Exception {
+        mockMvc.perform(post("/api/orders/grab")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "userId": 9820,
+                                  "sessionId": 101,
+                                  "ticketCategoryId": 1001,
+                                  "quantity": 1,
+                                  "passengerName": "王芳",
+                                  "passengerDocumentType": "ID_CARD",
+                                  "passengerDocumentLast4": "6x9p"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.amountCents").value(19900))
+                .andExpect(jsonPath("$.data.quantity").value(1))
+                .andExpect(jsonPath("$.data.passengerName").value("王芳"))
+                .andExpect(jsonPath("$.data.passengerDocumentType").value("ID_CARD"))
+                .andExpect(jsonPath("$.data.passengerDocumentLast4").value("6X9P"));
+    }
+
+    @Test
+    void rejectsUnknownPassengerDocumentTypeAsValidationError() throws Exception {
+        mockMvc.perform(post("/api/orders/grab")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "userId": 9821,
+                                  "sessionId": 101,
+                                  "ticketCategoryId": 1001,
+                                  "quantity": 1,
+                                  "passengerName": "王芳",
+                                  "passengerDocumentType": "UNKNOWN",
+                                  "passengerDocumentLast4": "1234"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("请求字段格式不正确，请检查证件类型和 JSON 格式"));
     }
 
     @Test

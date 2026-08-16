@@ -2,6 +2,7 @@ package com.eventrush.service;
 
 import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
+import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketCategory;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketStatus;
@@ -98,6 +99,29 @@ public class TicketingService {
 
     @Transactional
     public synchronized TicketOrder grabTicket(Long userId, Long sessionId, Long ticketCategoryId) {
+        return grabTicket(
+                userId,
+                sessionId,
+                ticketCategoryId,
+                1,
+                "压测用户 " + userId,
+                PassengerDocumentType.OTHER,
+                "%04d".formatted(Math.floorMod(userId, 10_000))
+        );
+    }
+
+    @Transactional
+    public synchronized TicketOrder grabTicket(
+            Long userId,
+            Long sessionId,
+            Long ticketCategoryId,
+            int quantity,
+            String passengerName,
+            PassengerDocumentType passengerDocumentType,
+            String passengerDocumentLast4
+    ) {
+        PassengerSnapshot passenger = validatePassenger(
+                quantity, passengerName, passengerDocumentType, passengerDocumentLast4);
         checkGrabRateLimit(userId);
         TicketCategory ticketCategory = eventCatalogService.getTicketCategory(sessionId, ticketCategoryId);
         if (hasGrabbed(userId, sessionId, ticketCategoryId)) {
@@ -115,6 +139,7 @@ public class TicketingService {
                 sessionId,
                 ticketCategoryId,
                 ticketCategory.priceCents(),
+                passenger,
                 now,
                 now.plusSeconds(orderExpireSeconds)
         );
@@ -160,12 +185,15 @@ public class TicketingService {
             Long sessionId,
             Long ticketCategoryId,
             long unitPriceCents,
+            PassengerSnapshot passenger,
             LocalDateTime createdTime,
             LocalDateTime expireTime
     ) {
         if (ticketOrderRepository != null) {
             return ticketOrderRepository.createPending(
-                    userId, eventId, sessionId, ticketCategoryId, unitPriceCents, createdTime, expireTime);
+                    userId, eventId, sessionId, ticketCategoryId, unitPriceCents,
+                    passenger.quantity(), passenger.name(), passenger.documentType(), passenger.documentLast4(),
+                    createdTime, expireTime);
         }
         // ponytail: only used by small unit tests; app runtime writes orders through TicketOrderRepository.
         TicketOrder order = new TicketOrder(
@@ -175,7 +203,11 @@ public class TicketingService {
                 sessionId,
                 ticketCategoryId,
                 unitPriceCents,
-                unitPriceCents,
+                unitPriceCents * passenger.quantity(),
+                passenger.quantity(),
+                passenger.name(),
+                passenger.documentType(),
+                passenger.documentLast4(),
                 OrderStatus.PENDING_PAYMENT,
                 createdTime,
                 null,
@@ -184,6 +216,37 @@ public class TicketingService {
         );
         orders.put(order.id(), order);
         return order;
+    }
+
+    private PassengerSnapshot validatePassenger(
+            int quantity,
+            String passengerName,
+            PassengerDocumentType passengerDocumentType,
+            String passengerDocumentLast4
+    ) {
+        String normalizedName = passengerName == null ? "" : passengerName.trim();
+        String normalizedLast4 = passengerDocumentLast4 == null ? "" : passengerDocumentLast4.trim().toUpperCase();
+        if (quantity != 1) {
+            throw new BusinessException("UNSUPPORTED_QUANTITY", HttpStatus.BAD_REQUEST,
+                    "当前阶段每笔订单仅支持 1 位购票人和 1 张电子票");
+        }
+        if (normalizedName.length() < 2 || normalizedName.length() > 30) {
+            throw new BusinessException("INVALID_PASSENGER", HttpStatus.BAD_REQUEST,
+                    "购票人姓名长度应为 2 到 30 个字符");
+        }
+        if (passengerDocumentType == null || !normalizedLast4.matches("[A-Z0-9]{4}")) {
+            throw new BusinessException("INVALID_PASSENGER", HttpStatus.BAD_REQUEST,
+                    "请选择证件类型，并填写证件号码后四位");
+        }
+        return new PassengerSnapshot(quantity, normalizedName, passengerDocumentType, normalizedLast4);
+    }
+
+    private record PassengerSnapshot(
+            int quantity,
+            String name,
+            PassengerDocumentType documentType,
+            String documentLast4
+    ) {
     }
 
     private void deductRedisStock(Long userId, Long sessionId, Long ticketCategoryId) {

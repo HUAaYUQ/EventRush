@@ -2,6 +2,7 @@ package com.eventrush.service;
 
 import com.eventrush.domain.ElectronicTicket;
 import com.eventrush.domain.OrderStatus;
+import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
 import com.eventrush.domain.TicketStatus;
 import org.junit.jupiter.api.Test;
@@ -35,13 +36,18 @@ class TicketingPersistenceTest {
 
     @Test
     void persistsOrderAndPaymentStatus() {
-        TicketOrder order = ticketingService.grabTicket(300L, 101L, 1001L);
+        TicketOrder order = ticketingService.grabTicket(
+                300L, 101L, 1001L, 1, "李雷", PassengerDocumentType.PASSPORT, "8X2P");
 
         assertThat(ticketOrderRepository.findById(order.id()))
                 .get()
                 .satisfies(persisted -> {
                     assertThat(persisted.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
                     assertThat(persisted.amountCents()).isEqualTo(19900);
+                    assertThat(persisted.quantity()).isEqualTo(1);
+                    assertThat(persisted.passengerName()).isEqualTo("李雷");
+                    assertThat(persisted.passengerDocumentType()).isEqualTo(PassengerDocumentType.PASSPORT);
+                    assertThat(persisted.passengerDocumentLast4()).isEqualTo("8X2P");
                 });
 
         ticketingService.payOrder(order.id());

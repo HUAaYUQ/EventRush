@@ -1,6 +1,7 @@
 package com.eventrush.service;
 
 import com.eventrush.domain.OrderStatus;
+import com.eventrush.domain.PassengerDocumentType;
 import com.eventrush.domain.TicketOrder;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -30,6 +31,10 @@ public class TicketOrderRepository {
             Long sessionId,
             Long ticketCategoryId,
             long unitPriceCents,
+            int quantity,
+            String passengerName,
+            PassengerDocumentType passengerDocumentType,
+            String passengerDocumentLast4,
             LocalDateTime createdTime,
             LocalDateTime expireTime
     ) {
@@ -39,19 +44,24 @@ public class TicketOrderRepository {
                 PreparedStatement statement = connection.prepareStatement("""
                         INSERT INTO ticket_order
                             (user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
+                             quantity, passenger_name, passenger_document_type, passenger_document_last4,
                              active_grab_key, order_status, created_time, expire_time)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, Statement.RETURN_GENERATED_KEYS);
                 statement.setLong(1, userId);
                 statement.setLong(2, eventId);
                 statement.setLong(3, sessionId);
                 statement.setLong(4, ticketCategoryId);
                 statement.setLong(5, unitPriceCents);
-                statement.setLong(6, unitPriceCents);
-                statement.setString(7, activeGrabKey(userId, sessionId, ticketCategoryId));
-                statement.setString(8, OrderStatus.PENDING_PAYMENT.name());
-                statement.setTimestamp(9, Timestamp.valueOf(createdTime));
-                statement.setTimestamp(10, Timestamp.valueOf(expireTime));
+                statement.setLong(6, unitPriceCents * quantity);
+                statement.setInt(7, quantity);
+                statement.setString(8, passengerName);
+                statement.setString(9, passengerDocumentType.name());
+                statement.setString(10, passengerDocumentLast4);
+                statement.setString(11, activeGrabKey(userId, sessionId, ticketCategoryId));
+                statement.setString(12, OrderStatus.PENDING_PAYMENT.name());
+                statement.setTimestamp(13, Timestamp.valueOf(createdTime));
+                statement.setTimestamp(14, Timestamp.valueOf(expireTime));
                 return statement;
             }, keyHolder);
         } catch (DuplicateKeyException exception) {
@@ -67,7 +77,8 @@ public class TicketOrderRepository {
 
     public Optional<TicketOrder> findById(Long orderId) {
         return jdbcTemplate.query("""
-                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents, order_status,
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
+                               quantity, passenger_name, passenger_document_type, passenger_document_last4, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE id = ?
@@ -80,6 +91,10 @@ public class TicketOrderRepository {
                         resultSet.getLong("ticket_category_id"),
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
+                        resultSet.getInt("quantity"),
+                        resultSet.getString("passenger_name"),
+                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
+                        resultSet.getString("passenger_document_last4"),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -92,7 +107,8 @@ public class TicketOrderRepository {
 
     public List<TicketOrder> findExpiredPending(LocalDateTime now, int limit) {
         return jdbcTemplate.query("""
-                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents, order_status,
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
+                               quantity, passenger_name, passenger_document_type, passenger_document_last4, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE order_status = ?
@@ -108,6 +124,10 @@ public class TicketOrderRepository {
                         resultSet.getLong("ticket_category_id"),
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
+                        resultSet.getInt("quantity"),
+                        resultSet.getString("passenger_name"),
+                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
+                        resultSet.getString("passenger_document_last4"),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -122,7 +142,8 @@ public class TicketOrderRepository {
 
     public List<TicketOrder> findByUserId(Long userId) {
         return jdbcTemplate.query("""
-                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents, order_status,
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
+                               quantity, passenger_name, passenger_document_type, passenger_document_last4, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE user_id = ?
@@ -136,6 +157,10 @@ public class TicketOrderRepository {
                         resultSet.getLong("ticket_category_id"),
                         resultSet.getLong("unit_price_cents"),
                         resultSet.getLong("amount_cents"),
+                        resultSet.getInt("quantity"),
+                        resultSet.getString("passenger_name"),
+                        PassengerDocumentType.valueOf(resultSet.getString("passenger_document_type")),
+                        resultSet.getString("passenger_document_last4"),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),

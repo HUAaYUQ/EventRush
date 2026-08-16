@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS ticket_order (
     ticket_category_id BIGINT NOT NULL,
     unit_price_cents BIGINT NOT NULL DEFAULT 0,
     amount_cents BIGINT NOT NULL DEFAULT 0,
+    quantity INT NOT NULL DEFAULT 1,
+    passenger_name VARCHAR(64) NOT NULL DEFAULT '历史演示用户',
+    passenger_document_type VARCHAR(32) NOT NULL DEFAULT 'OTHER',
+    passenger_document_last4 VARCHAR(4) NOT NULL DEFAULT '0000',
     active_grab_key VARCHAR(96) NULL,
     order_status VARCHAR(32) NOT NULL,
     created_time TIMESTAMP NOT NULL,
@@ -17,6 +21,10 @@ CREATE TABLE IF NOT EXISTS ticket_order (
 ALTER TABLE ticket_order DROP CONSTRAINT IF EXISTS uk_ticket_order_once;
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS unit_price_cents BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS amount_cents BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAULT 1;
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS passenger_name VARCHAR(64) NOT NULL DEFAULT '历史演示用户';
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS passenger_document_type VARCHAR(32) NOT NULL DEFAULT 'OTHER';
+ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS passenger_document_last4 VARCHAR(4) NOT NULL DEFAULT '0000';
 ALTER TABLE ticket_order ADD COLUMN IF NOT EXISTS active_grab_key VARCHAR(96) NULL;
 UPDATE ticket_order
 SET active_grab_key = CONCAT(user_id, ':', session_id, ':', ticket_category_id)

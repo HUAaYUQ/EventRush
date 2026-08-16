@@ -97,6 +97,10 @@ http://localhost:18086
 | `ticketCategoryId` | 票档 ID |
 | `unitPriceCents` | 下单时的票档单价快照，单位为分 |
 | `amountCents` | 订单应付金额，单位为分；当前每单固定 1 张 |
+| `quantity` | 购票数量；当前单人单票阶段固定为 `1` |
+| `passengerName` | 下单时保存的购票人姓名快照 |
+| `passengerDocumentType` | 证件类型：`ID_CARD`、`PASSPORT`、`OTHER` |
+| `passengerDocumentLast4` | 证件号码后四位，只允许字母或数字；接口不接收完整证件号 |
 | `status` | 订单状态：`PENDING_PAYMENT`、`PAID`、`CANCELED` |
 | `createdTime` | 创建时间 |
 | `payTime` | 支付时间 |
@@ -133,7 +137,7 @@ GET /api/events/{eventId}
 
 返回单个 `Event`。如果开启 Redis 缓存，活动详情会先查缓存，未命中再查数据库并写入缓存。
 
-### 同步抢票
+### 提交同步购票订单
 
 ```http
 POST /api/orders/grab
@@ -142,11 +146,17 @@ Content-Type: application/json
 {
   "userId": 9800,
   "sessionId": 101,
-  "ticketCategoryId": 1001
+  "ticketCategoryId": 1001,
+  "quantity": 1,
+  "passengerName": "张三",
+  "passengerDocumentType": "ID_CARD",
+  "passengerDocumentLast4": "1234"
 }
 ```
 
-成功返回 `TicketOrder`，初始状态为 `PENDING_PAYMENT`。
+成功返回 `TicketOrder`，初始状态为 `PENDING_PAYMENT`。价格、数量和购票人脱敏信息都会成为订单快照，后续票档或本机表单变化不会改写历史订单。
+
+当前电子票模型仍是一笔订单对应一张票，因此 `quantity` 只允许为 `1`。多人多票需要先升级为“每位购票人生成独立电子票码”，不能把一个票码复用给多人。
 
 ### 异步抢票
 
@@ -162,6 +172,8 @@ Content-Type: application/json
 ```
 
 成功返回抢票请求结果，通常包含 `requestId` 和当前处理状态。后续由 RocketMQ 消费者异步处理。
+
+异步接口主要用于高并发和 MQ 演示，当前会为压测用户生成明确标记的测试购票人快照；面向用户的正式下单流程使用上面的同步购票接口。
 
 ### 查询异步抢票结果
 
