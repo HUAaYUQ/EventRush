@@ -171,6 +171,18 @@ docs/redis-lua-pressure-switch.md
 docs/product-output-blueprint.md
 ```
 
+产品方向总纲：
+
+```text
+docs/product-direction-roadmap.md
+```
+
+P0 执行计划：
+
+```text
+docs/p0-execution-plan.md
+```
+
 前端工作台需求设计：
 
 ```text

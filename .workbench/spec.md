@@ -1,10 +1,10 @@
 ---
-name: EventRush 票务证据工作台
+name: EventRush 票务产品与工程证据台
 domain: system
 subject: 票务订单
-purpose: 让学习者和面试展示者用一页跑通抢票、支付、出票、验票、后台排查和压测证据。
+purpose: 让用户先像真实票务产品一样完成预订、支付和验票；让学习者和面试展示者在独立入口里查看排查、压测和 traceId 证据。
 surface: desktop
-structure: { primary: pipeline, secondary: monitor }
+structure: { primary: ticket_product, secondary: evidence_console }
 moment: 每次阶段验收或面试演示前
 dials: { cadence: 5, input: 4, depth: 8 }
 
@@ -14,7 +14,8 @@ roles:
   - { name: 管理排查者, opens_daily: false, does: 用 X-Admin-Key 反查用户订单、订单电子票和票码详情 }
 
 hook:
-  text: "本轮订单已走到 PAID · 电子票 VERIFIED · 最近失败请求可用 traceId 排查"
+  text: "本轮订单 {order.status} · 电子票 {ticket.status} · 最近失败请求可用 traceId 排查"
+  cold_start: "本轮尚未创建订单 · 从车票预订开始"
   shape: state
   fields:
     - { name: order.status, reads: 订单已走到 PAID, writes: system, when: 支付接口返回订单状态后 }
@@ -28,11 +29,15 @@ cold_start:
   re_entry: 距上次验收已经隔了一段时间，直接重新跑一条新链路，不需要补旧数据。
 
 home:
-  - hook
-  - 本轮验收摘要：userId、orderId、ticketCode、订单状态、电子票状态
-  - 当前可操作链路：活动票档选择、抢票、支付、查票、验票
-  - 最近请求记录：成功和失败请求按时间倒序展示
-  - 压测证据摘要：是否超卖、QPS、P95、P99、系统异常数
+  - 车票预订：活动票档选择、购票用户、提交订单、支付出票
+  - 我的电子票：ticketCode 查询、订单状态、电子票状态
+  - 验票入口：票码输入、验票员 ID、入场核验结果
+  - 工程证据：hook、本轮验收摘要、最近请求记录、压测证据、管理排查
+
+product_boundary:
+  foreground: 车票预订、我的电子票、验票入口是产品功能，默认展示给用户或工作人员。
+  evidence: 请求记录、压测证据、后台排查和验收摘要属于工程证据，只放在单独入口，不混入购票主流程。
+  reference: 借鉴 12306 类票务产品的页面边界：先查票和下单，再处理订单、电子票、验票，工程证明不能抢占用户路径。
 
 channels:
   - name: 票务链路
@@ -143,9 +148,10 @@ deferred:
 ## 给实现方
 
 - 这是电脑浏览器里的 Web 工作台，不是 App，也不是营销首页。
-- 首屏按 `home` 顺序排，第一行是 `hook.text`，不要缩成普通卡片标题。
+- 默认首屏是 `home` 里的“车票预订”，不要先展示压测、请求记录或后台排查。
+- `hook.text` 只在“工程证据”入口里展示，不要压在购票用户首屏上。
 - 空数据时显示 `cold_start.day_1`，不要显示空表、`--` 或假数据。
-- 左侧或顶部导航来自 `channels`，`weight: primary` 的“票务链路”是默认落地页。
+- 顶部导航必须把前台产品和工程证据分开，`weight: primary` 的“票务链路”映射为“车票预订”。
 - 每个模块按 `pages` 建，`shows` 决定屏幕形态。不要把所有模块都做成一样的表格。
 - `entities` 是数据来源说明，`written_by` 决定哪些字段来自用户输入，哪些来自系统响应。
 - `depends_on` 里的自动压测历史目前没有后端接口，不要在首屏假装已有历史趋势。

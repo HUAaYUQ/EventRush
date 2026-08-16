@@ -153,6 +153,122 @@ const pressureComparisonConclusion = computed(() => {
   return '两组方案都未超卖且无系统异常，但性能优势还不明显，需要结合更多轮压测判断。'
 })
 
+const hookText = computed(() => {
+  if (!order.value) {
+    return '本轮尚未创建订单 · 从车票预订开始'
+  }
+
+  if (order.value.status !== 'PAID') {
+    return `本轮订单 ${order.value.status} · 等待支付出票`
+  }
+
+  if (!ticket.value) {
+    return '本轮订单 PAID · 等待查询电子票'
+  }
+
+  const failureHint = requestRecords.value.some((record) => record.result !== '成功')
+    ? ' · 最近失败请求可用 traceId 排查'
+    : ''
+  return `本轮订单 PAID · 电子票 ${ticket.value.status}${failureHint}`
+})
+const coldStartDayOne =
+  '先选择一个有库存的票档，完成一次抢票和支付，工作台就能生成本轮 orderId、ticketCode 和 traceId。'
+const copiedTraceId = ref('')
+const activeView = ref('booking')
+
+const productTabs = [
+  { key: 'booking', label: '车票预订', detail: '查票档、下单、支付' },
+  { key: 'tickets', label: '我的电子票', detail: '查票与订单状态' },
+  { key: 'gate', label: '验票入口', detail: '入场核验' },
+  { key: 'evidence', label: '工程证据', detail: '排查与压测' },
+]
+
+const latestRequestRecord = computed(() => requestRecords.value[0] ?? null)
+const latestFailedRequest = computed(() =>
+  requestRecords.value.find((record) => record.result !== '成功'),
+)
+
+const currentTicketCode = computed(
+  () => ticket.value?.ticketCode ?? adminTicketByOrder.value?.ticketCode ?? ticketLookupCode.value,
+)
+
+const acceptanceSummary = computed(() => [
+  {
+    label: 'userId',
+    value: userId.value,
+    detail: '本轮演示用户',
+    tone: 'ready',
+  },
+  {
+    label: 'orderId',
+    value: order.value?.id ?? '待抢票',
+    detail: order.value ? '订单已生成' : '同步抢票后写入',
+    tone: order.value ? 'ready' : 'pending',
+  },
+  {
+    label: 'ticketCode',
+    value: currentTicketCode.value || '待出票',
+    detail: currentTicketCode.value ? '电子票凭证' : '支付出票后写入',
+    tone: currentTicketCode.value ? 'ready' : 'pending',
+  },
+  {
+    label: '订单状态',
+    value: order.value?.status ?? '未创建',
+    detail: order.value ? '来自订单接口' : '等待抢票',
+    tone: order.value?.status === 'PAID' ? 'ready' : 'pending',
+  },
+  {
+    label: '电子票状态',
+    value: ticket.value?.status ?? '未出票',
+    detail: ticket.value ? '来自查票/验票接口' : '等待支付',
+    tone: ticket.value?.status === 'VERIFIED' ? 'ready' : 'pending',
+  },
+  {
+    label: '失败 traceId',
+    value: latestFailedRequest.value?.traceId || '暂无失败',
+    detail: latestFailedRequest.value?.action ?? '失败请求会在这里出现',
+    tone: latestFailedRequest.value ? 'danger' : 'quiet',
+  },
+])
+
+const pipelineSteps = computed(() => [
+  {
+    name: '选票档',
+    detail: selectedTicket.value
+      ? `${selectedTicket.value.category.name} · 余 ${selectedTicket.value.category.remainingStock}`
+      : '选择有库存票档',
+    done: Boolean(selectedTicket.value),
+  },
+  {
+    name: '抢票',
+    detail: order.value ? `orderId ${order.value.id}` : '生成订单',
+    done: Boolean(order.value),
+  },
+  {
+    name: '支付',
+    detail: ticket.value ? `ticketCode ${ticket.value.ticketCode}` : '支付后出票',
+    done: Boolean(ticket.value),
+  },
+  {
+    name: '查票',
+    detail: ticketLookupTraceId.value ? '已记录 traceId' : '回看电子票',
+    done: Boolean(ticketLookupTraceId.value || ticket.value),
+  },
+  {
+    name: '验票',
+    detail: ticket.value?.status === 'VERIFIED' ? '已核验入场' : '验证入场状态',
+    done: ticket.value?.status === 'VERIFIED',
+  },
+])
+
+const pressureHeroItems = computed(() => [
+  { label: '是否超卖', value: pressureOversold.value ? '是' : '否', danger: pressureOversold.value },
+  { label: 'QPS', value: pressureQps.value || 0 },
+  { label: 'P95', value: `${pressureP95Ms.value || 0} ms` },
+  { label: 'P99', value: `${pressureP99Ms.value || 0} ms` },
+  { label: '系统异常', value: pressureSystemErrors.value || 0, danger: Number(pressureSystemErrors.value) > 0 },
+])
+
 function addRequestRecord(record) {
   requestRecords.value = [
     {
@@ -507,6 +623,27 @@ async function verifyTicket() {
   }
 }
 
+async function copyTraceId(nextTraceId) {
+  if (!nextTraceId) {
+    copiedTraceId.value = '这条记录没有 traceId'
+    window.setTimeout(() => {
+      copiedTraceId.value = ''
+    }, 1800)
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(nextTraceId)
+    copiedTraceId.value = 'traceId 已复制'
+  } catch {
+    copiedTraceId.value = '浏览器不允许自动复制，请手动选择 traceId'
+  }
+
+  window.setTimeout(() => {
+    copiedTraceId.value = ''
+  }, 1800)
+}
+
 onMounted(loadEvents)
 </script>
 
@@ -516,8 +653,8 @@ onMounted(loadEvents)
       <div class="brand">
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
-          <p class="eyebrow">EventRush 工作台</p>
-          <h1>票务链路与压测证据工作台</h1>
+          <p class="eyebrow">EventRush</p>
+          <h1>活动票务预订</h1>
         </div>
       </div>
       <button type="button" class="reload-button" :disabled="loading" @click="loadEvents">
@@ -525,32 +662,133 @@ onMounted(loadEvents)
       </button>
     </section>
 
-    <section class="status-grid" aria-label="活动概览">
-      <article>
-        <span>活动</span>
-        <strong>{{ summary.events }}</strong>
-      </article>
-      <article>
-        <span>场次</span>
-        <strong>{{ summary.sessions }}</strong>
-      </article>
-      <article>
-        <span>票档</span>
-        <strong>{{ summary.categories }}</strong>
-      </article>
-      <article>
-        <span>剩余库存</span>
-        <strong>{{ summary.remainingStock }}</strong>
-      </article>
+    <nav class="product-nav" aria-label="产品导航">
+      <button
+        v-for="tab in productTabs"
+        :key="tab.key"
+        type="button"
+        :class="{ active: activeView === tab.key }"
+        :aria-current="activeView === tab.key ? 'page' : undefined"
+        @click="activeView = tab.key"
+      >
+        <strong>{{ tab.label }}</strong>
+        <span>{{ tab.detail }}</span>
+      </button>
+    </nav>
+
+    <section v-if="activeView === 'booking'" class="customer-hero" aria-label="车票预订首页">
+      <div>
+        <p class="eyebrow">购票流程</p>
+        <h2>选择活动票档，完成下单和出票</h2>
+        <p>选择场次和票档，提交订单后完成支付，电子票会自动进入“我的电子票”。</p>
+      </div>
+      <aside class="booking-side">
+        <article class="booking-status">
+          <span>当前订单</span>
+          <strong>{{ order ? `#${order.id} · ${order.status}` : '尚未下单' }}</strong>
+          <p>{{ ticket ? `电子票 ${ticket.ticketCode} · ${ticket.status}` : '支付后生成电子票' }}</p>
+        </article>
+
+        <article class="boundary-card">
+          <span>后续服务</span>
+          <div>
+            <strong>退票</strong>
+            <strong>通知</strong>
+            <strong>主办方入口</strong>
+          </div>
+          <p>这些入口会进入后续阶段，不挤占当前主流程。</p>
+        </article>
+      </aside>
     </section>
 
-    <section class="panel">
+    <section v-if="activeView === 'evidence'" class="hook-strip" aria-label="本轮状态">
+      <p class="hook-text">{{ hookText }}</p>
+      <span class="hook-badge">state</span>
+    </section>
+
+    <section v-if="activeView === 'evidence'" class="home-hero" aria-label="本轮验收摘要">
+      <div class="hero-layout">
+        <article class="summary-panel">
+          <div class="panel-title-row">
+            <div>
+              <p class="eyebrow">本轮验收摘要</p>
+              <h2>把 orderId、ticketCode、状态和 traceId 放在第一屏</h2>
+            </div>
+            <span class="result-badge" :class="{ danger: !order || ticket?.status !== 'VERIFIED' }">
+              {{ order && ticket?.status === 'VERIFIED' ? '链路完成' : '待补齐' }}
+            </span>
+          </div>
+
+          <p v-if="!order && requestRecords.length === 0" class="cold-start">
+            {{ coldStartDayOne }}
+          </p>
+
+          <div class="acceptance-grid">
+            <article
+              v-for="item in acceptanceSummary"
+              :key="item.label"
+              class="evidence-card"
+              :class="item.tone"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.detail }}</small>
+            </article>
+          </div>
+        </article>
+
+        <aside class="chain-panel">
+          <p class="eyebrow">当前可操作链路</p>
+          <div class="pipeline-list">
+            <article
+              v-for="step in pipelineSteps"
+              :key="step.name"
+              class="pipeline-step"
+              :class="{ done: step.done }"
+            >
+              <span class="step-dot"></span>
+              <div>
+                <strong>{{ step.name }}</strong>
+                <p>{{ step.detail }}</p>
+              </div>
+            </article>
+          </div>
+        </aside>
+      </div>
+
+      <div class="home-metrics" aria-label="活动和压测概览">
+        <article>
+          <span>活动</span>
+          <strong>{{ summary.events }}</strong>
+        </article>
+        <article>
+          <span>场次</span>
+          <strong>{{ summary.sessions }}</strong>
+        </article>
+        <article>
+          <span>票档</span>
+          <strong>{{ summary.categories }}</strong>
+        </article>
+        <article>
+          <span>剩余库存</span>
+          <strong>{{ summary.remainingStock }}</strong>
+        </article>
+        <article
+          v-for="item in pressureHeroItems"
+          :key="item.label"
+          :class="{ danger: item.danger }"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="activeView === 'booking'" class="panel booking-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">GET /api/events</p>
-          <h2>活动与票档</h2>
+          <h2>选择活动和票档</h2>
         </div>
-        <p v-if="traceId" class="trace">traceId: {{ traceId }}</p>
       </div>
 
       <p v-if="loading" class="hint">正在通过 Vite 代理请求后端活动接口...</p>
@@ -590,13 +828,11 @@ onMounted(loadEvents)
       </div>
     </section>
 
-    <section class="panel action-panel">
+    <section v-if="activeView === 'booking'" class="panel action-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">POST /api/orders/grab</p>
-          <h2>同步抢票</h2>
+          <h2>提交订单</h2>
         </div>
-        <p v-if="grabTraceId" class="trace">traceId: {{ grabTraceId }}</p>
       </div>
 
       <div class="grab-layout">
@@ -650,13 +886,11 @@ onMounted(loadEvents)
       </div>
     </section>
 
-    <section class="panel action-panel">
+    <section v-if="activeView === 'booking'" class="panel action-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">POST /api/orders/{orderId}/pay</p>
-          <h2>支付出票</h2>
+          <h2>支付并出票</h2>
         </div>
-        <p v-if="payTraceId" class="trace">traceId: {{ payTraceId }}</p>
       </div>
 
       <div class="pay-layout">
@@ -693,15 +927,10 @@ onMounted(loadEvents)
       </div>
     </section>
 
-    <section class="panel action-panel">
+    <section v-if="activeView === 'tickets' || activeView === 'gate'" class="panel action-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">GET /api/tickets/{ticketCode} · POST /api/tickets/verify</p>
-          <h2>电子票查询与验票</h2>
-        </div>
-        <div class="trace-list">
-          <p v-if="ticketLookupTraceId" class="trace">查票 traceId: {{ ticketLookupTraceId }}</p>
-          <p v-if="verifyTraceId" class="trace">验票 traceId: {{ verifyTraceId }}</p>
+          <h2>{{ activeView === 'gate' ? '入场验票' : '查询电子票' }}</h2>
         </div>
       </div>
 
@@ -714,7 +943,7 @@ onMounted(loadEvents)
             placeholder="支付后会自动带出票码，也可以手动粘贴"
           />
         </label>
-        <label>
+        <label v-if="activeView === 'gate'">
           <span>验票员 ID</span>
           <input v-model.number="verifierId" type="number" min="1" />
         </label>
@@ -727,6 +956,7 @@ onMounted(loadEvents)
           {{ ticketLookupLoading ? '查询中' : '查询电子票' }}
         </button>
         <button
+          v-if="activeView === 'gate'"
           type="button"
           class="primary-action"
           :disabled="verifyLoading || !ticketLookupCode"
@@ -753,102 +983,48 @@ onMounted(loadEvents)
       </div>
     </section>
 
-    <section class="panel action-panel">
+    <section v-if="activeView === 'evidence'" class="panel action-panel request-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">GET /api/admin/**</p>
-          <h2>管理端排查</h2>
-        </div>
-        <div class="trace-list">
-          <p v-if="adminOrdersTraceId" class="trace">用户订单 traceId: {{ adminOrdersTraceId }}</p>
-          <p v-if="adminTicketByOrderTraceId" class="trace">
-            订单查票 traceId: {{ adminTicketByOrderTraceId }}
-          </p>
-          <p v-if="adminTicketByCodeTraceId" class="trace">
-            票码查票 traceId: {{ adminTicketByCodeTraceId }}
-          </p>
-        </div>
-      </div>
-
-      <div class="admin-layout">
-        <label class="code-field">
-          <span>X-Admin-Key</span>
-          <input v-model.trim="adminKey" type="text" />
-        </label>
-        <button
-          type="button"
-          class="secondary-action"
-          :disabled="adminLoading === 'orders'"
-          @click="loadAdminOrders"
-        >
-          {{ adminLoading === 'orders' ? '查询中' : '按用户查订单' }}
-        </button>
-        <button
-          type="button"
-          class="secondary-action"
-          :disabled="adminLoading === 'orderTicket' || !order"
-          @click="loadAdminTicketByOrder"
-        >
-          {{ adminLoading === 'orderTicket' ? '查询中' : '按订单查票' }}
-        </button>
-        <button
-          type="button"
-          class="secondary-action"
-          :disabled="adminLoading === 'codeTicket' || !ticketLookupCode"
-          @click="loadAdminTicketByCode"
-        >
-          {{ adminLoading === 'codeTicket' ? '查询中' : '按票码查票' }}
-        </button>
-      </div>
-
-      <p v-if="adminError" class="error">{{ adminError }}</p>
-      <div class="admin-results">
-        <div v-if="adminOrders.length" class="selected-box">
-          <p class="box-title">用户 {{ userId }} 的订单</p>
-          <div class="admin-list">
-            <div v-for="item in adminOrders" :key="item.id" class="admin-row">
-              <span>#{{ item.id }}</span>
-              <strong>{{ item.status }}</strong>
-              <span>票档 {{ item.ticketCategoryId }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="adminTicketByOrder" class="ticket-result">
-          <p class="box-title">订单对应电子票</p>
-          <div class="result-grid">
-            <span>ticketCode</span>
-            <strong>{{ adminTicketByOrder.ticketCode }}</strong>
-            <span>票状态</span>
-            <strong>{{ adminTicketByOrder.status }}</strong>
-            <span>orderId</span>
-            <strong>{{ adminTicketByOrder.orderId }}</strong>
-          </div>
-        </div>
-
-        <div v-if="adminTicketByCode" class="ticket-result verified-result">
-          <p class="box-title">票码查询结果</p>
-          <div class="result-grid">
-            <span>ticketCode</span>
-            <strong>{{ adminTicketByCode.ticketCode }}</strong>
-            <span>票状态</span>
-            <strong>{{ adminTicketByCode.status }}</strong>
-            <span>验票员</span>
-            <strong>{{ adminTicketByCode.verifierId ?? '未核验' }}</strong>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel action-panel">
-      <div class="panel-header">
-        <div>
-          <p class="eyebrow">recent requests</p>
           <h2>最近请求记录</h2>
         </div>
+        <p v-if="copiedTraceId" class="copy-feedback">{{ copiedTraceId }}</p>
       </div>
 
-      <div v-if="requestRecords.length === 0" class="empty">暂无请求记录。</div>
+      <div class="request-overview">
+        <article class="latest-request-card">
+          <span>最新请求</span>
+          <template v-if="latestRequestRecord">
+            <strong>{{ latestRequestRecord.action }}</strong>
+            <p>
+              {{ latestRequestRecord.time }} · {{ latestRequestRecord.result }} ·
+              {{ latestRequestRecord.code }}
+            </p>
+          </template>
+          <p v-else>{{ coldStartDayOne }}</p>
+        </article>
+
+        <article class="latest-request-card failed">
+          <span>最近失败</span>
+          <template v-if="latestFailedRequest">
+            <strong>{{ latestFailedRequest.action }}</strong>
+            <p>{{ latestFailedRequest.summary || latestFailedRequest.code }}</p>
+            <button
+              type="button"
+              class="trace-copy"
+              :disabled="!latestFailedRequest.traceId"
+              @click="copyTraceId(latestFailedRequest.traceId)"
+            >
+              复制 traceId
+            </button>
+          </template>
+          <p v-else>暂无失败请求。出现错误时会优先显示 traceId。</p>
+        </article>
+      </div>
+
+      <div v-if="requestRecords.length === 0" class="empty request-empty">
+        {{ coldStartDayOne }}
+      </div>
       <div v-else class="request-list">
         <div class="request-head">
           <span>时间</span>
@@ -859,24 +1035,41 @@ onMounted(loadEvents)
           <span>traceId</span>
           <span>摘要</span>
         </div>
-        <div v-for="record in requestRecords" :key="record.id" class="request-row">
-          <span>{{ record.time }}</span>
+        <div
+          v-for="record in requestRecords"
+          :key="record.id"
+          class="request-row"
+          :class="{ failed: record.result !== '成功' }"
+        >
+          <span class="request-time">{{ record.time }}</span>
           <strong>{{ record.action }}</strong>
-          <span>{{ record.method }} {{ record.path }}</span>
+          <span class="request-path">
+            <b>{{ record.method }}</b>
+            {{ record.path }}
+          </span>
           <span :class="['request-result', { failed: record.result !== '成功' }]">
             {{ record.result }}
           </span>
-          <span>{{ record.code }}</span>
-          <span class="trace-cell">{{ record.traceId || '-' }}</span>
-          <span>{{ record.summary || '-' }}</span>
+          <span class="request-code">{{ record.code }}</span>
+          <span class="trace-cell">
+            {{ record.traceId || '无 traceId' }}
+            <button
+              v-if="record.traceId"
+              type="button"
+              class="trace-copy compact"
+              @click="copyTraceId(record.traceId)"
+            >
+              复制
+            </button>
+          </span>
+          <span class="request-summary">{{ record.summary || '无摘要' }}</span>
         </div>
       </div>
     </section>
 
-    <section class="panel action-panel">
+    <section v-if="activeView === 'evidence'" class="panel action-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">pressure baseline</p>
           <h2>压测结果记录</h2>
         </div>
         <strong class="result-badge" :class="{ danger: !pressurePassed }">
@@ -960,11 +1153,10 @@ onMounted(loadEvents)
       </div>
     </section>
 
-    <section class="panel action-panel">
+    <section v-if="activeView === 'evidence'" class="panel action-panel">
       <div class="panel-header">
         <div>
-          <p class="eyebrow">baseline vs redis lua</p>
-          <h2>压测对比展示</h2>
+          <h2>H2 基线与 Redis Lua 对比</h2>
         </div>
       </div>
 
@@ -1014,9 +1206,91 @@ onMounted(loadEvents)
       </div>
     </section>
 
-    <section class="next-panel">
-      <h2>下一步</h2>
-      <p>在这个基础上继续梳理 UI 结构和交互细节，让工作台从可用走向更适合演示和长期维护。</p>
+    <section v-if="activeView === 'evidence'" class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <h2>管理端排查</h2>
+        </div>
+        <div class="trace-list">
+          <p v-if="adminOrdersTraceId" class="trace">用户订单 traceId: {{ adminOrdersTraceId }}</p>
+          <p v-if="adminTicketByOrderTraceId" class="trace">
+            订单查票 traceId: {{ adminTicketByOrderTraceId }}
+          </p>
+          <p v-if="adminTicketByCodeTraceId" class="trace">
+            票码查票 traceId: {{ adminTicketByCodeTraceId }}
+          </p>
+        </div>
+      </div>
+
+      <div class="admin-layout">
+        <label class="code-field">
+          <span>X-Admin-Key</span>
+          <input v-model.trim="adminKey" type="text" />
+        </label>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="adminLoading === 'orders'"
+          @click="loadAdminOrders"
+        >
+          {{ adminLoading === 'orders' ? '查询中' : '按用户查订单' }}
+        </button>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="adminLoading === 'orderTicket' || !order"
+          @click="loadAdminTicketByOrder"
+        >
+          {{ adminLoading === 'orderTicket' ? '查询中' : '按订单查票' }}
+        </button>
+        <button
+          type="button"
+          class="secondary-action"
+          :disabled="adminLoading === 'codeTicket' || !ticketLookupCode"
+          @click="loadAdminTicketByCode"
+        >
+          {{ adminLoading === 'codeTicket' ? '查询中' : '按票码查票' }}
+        </button>
+      </div>
+
+      <p v-if="adminError" class="error">{{ adminError }}</p>
+      <div class="admin-results">
+        <div v-if="adminOrders.length" class="selected-box">
+          <p class="box-title">用户 {{ userId }} 的订单</p>
+          <div class="admin-list">
+            <div v-for="item in adminOrders" :key="item.id" class="admin-row">
+              <span>#{{ item.id }}</span>
+              <strong>{{ item.status }}</strong>
+              <span>票档 {{ item.ticketCategoryId }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="adminTicketByOrder" class="ticket-result">
+          <p class="box-title">订单对应电子票</p>
+          <div class="result-grid">
+            <span>ticketCode</span>
+            <strong>{{ adminTicketByOrder.ticketCode }}</strong>
+            <span>票状态</span>
+            <strong>{{ adminTicketByOrder.status }}</strong>
+            <span>orderId</span>
+            <strong>{{ adminTicketByOrder.orderId }}</strong>
+          </div>
+        </div>
+
+        <div v-if="adminTicketByCode" class="ticket-result verified-result">
+          <p class="box-title">票码查询结果</p>
+          <div class="result-grid">
+            <span>ticketCode</span>
+            <strong>{{ adminTicketByCode.ticketCode }}</strong>
+            <span>票状态</span>
+            <strong>{{ adminTicketByCode.status }}</strong>
+            <span>验票员</span>
+            <strong>{{ adminTicketByCode.verifierId ?? '未核验' }}</strong>
+          </div>
+        </div>
+      </div>
     </section>
+
   </main>
 </template>
