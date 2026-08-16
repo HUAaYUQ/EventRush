@@ -1922,7 +1922,7 @@ h2 {
   .request-overview,
   .pressure-layout,
   .ticket-pass {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .refund-breakdown {
@@ -1945,7 +1945,7 @@ h2 {
   }
 
   .comparison-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .trace-list {
@@ -1992,15 +1992,15 @@ h2 {
   .acceptance-grid,
   .home-metrics,
   .status-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .form-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .passenger-fields {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .receipt-passenger-list > div {
@@ -2018,16 +2018,16 @@ h2 {
   }
 
   .admin-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .pressure-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .order-row,
   .compact-lookup {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .order-heading {
