@@ -1,5 +1,9 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+const route = useRoute()
+const router = useRouter()
 
 const events = ref([])
 const loading = ref(false)
@@ -291,14 +295,85 @@ const hookText = computed(() => {
 const coldStartDayOne =
   '先选择一个有库存的票档，填写购票人并核对订单，再完成支付出票。'
 const copiedTraceId = ref('')
-const activeView = ref('booking')
+const surface = computed(() => route.meta.surface ?? 'customer')
+const activeView = computed({
+  get: () => route.meta.view ?? 'booking',
+  set: (view) => {
+    const path = {
+      booking: '/',
+      tickets: '/my',
+      gate: '/gate',
+      evidence: '/lab',
+      demo: '/demo',
+    }[view]
+    if (path && path !== route.path) {
+      router.push(path)
+    }
+  },
+})
 
-const productTabs = [
-  { key: 'booking', label: '车票预订', detail: '选票档、核对订单、支付' },
-  { key: 'tickets', label: '我的电子票', detail: '查票与订单状态' },
-  { key: 'gate', label: '验票入口', detail: '入场核验' },
-  { key: 'evidence', label: '工程证据', detail: '排查与压测' },
+const productTabs = computed(() => surface.value === 'customer'
+  ? [
+      { key: 'booking', path: '/', label: '活动票预订', detail: '选票档、核对订单、支付' },
+      { key: 'tickets', path: '/my', label: '我的订单与票', detail: '候补、订单、电子票、退票' },
+    ]
+  : [])
+
+const surfaceHeader = computed(() => ({
+  customer: {
+    eyebrow: 'EventRush',
+    title: activeView.value === 'tickets' ? '我的订单与电子票' : '活动票务预订',
+  },
+  gate: { eyebrow: 'EventRush · 验票员', title: '入场验票工作台' },
+  ops: { eyebrow: 'EventRush · 平台运营', title: '订单与票务排查' },
+  lab: { eyebrow: 'EventRush · 工程实验室', title: '高并发工程证据' },
+  demo: { eyebrow: 'EventRush', title: '演示身份入口' },
+}[surface.value]))
+
+const demoEntries = [
+  {
+    path: '/',
+    role: '购票用户',
+    title: '活动票预订',
+    detail: '选活动与票档、维护购票人、支付出票。',
+  },
+  {
+    path: '/my',
+    role: '购票用户',
+    title: '我的订单与电子票',
+    detail: '查看候补、继续支付、查票与退票。',
+  },
+  {
+    path: '/gate',
+    role: '验票员',
+    title: '入场验票工作台',
+    detail: '扫描或输入票码，核验入场资格。',
+  },
+  {
+    path: '/ops',
+    role: '平台运营',
+    title: '订单与票务排查',
+    detail: '根据用户、订单、票码和 traceId 定位问题。',
+  },
+  {
+    path: '/lab',
+    role: '研发与面试演示',
+    title: '高并发工程证据',
+    detail: '记录压测结果，对比 H2 与 Redis Lua 方案。',
+  },
 ]
+
+const customerRefreshLoading = computed(() => activeView.value === 'tickets'
+  ? myOrdersLoading.value || myWaitlistsLoading.value
+  : loading.value)
+
+async function refreshCustomerSurface() {
+  if (activeView.value === 'tickets') {
+    await refreshMyTickets()
+    return
+  }
+  await loadEvents()
+}
 
 const latestRequestRecord = computed(() => requestRecords.value[0] ?? null)
 const latestFailedRequest = computed(() =>
@@ -1291,35 +1366,89 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="shell">
+  <main class="shell" :data-surface="surface">
     <section class="topbar">
       <div class="brand">
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
-          <p class="eyebrow">EventRush</p>
-          <h1>活动票务预订</h1>
+          <p class="eyebrow">{{ surfaceHeader.eyebrow }}</p>
+          <h1>{{ surfaceHeader.title }}</h1>
         </div>
       </div>
-      <button type="button" class="reload-button" :disabled="loading" @click="loadEvents">
-        {{ loading ? '加载中' : '重新加载' }}
+      <button
+        v-if="surface === 'customer'"
+        type="button"
+        class="reload-button"
+        :disabled="customerRefreshLoading"
+        @click="refreshCustomerSurface"
+      >
+        {{ customerRefreshLoading ? '加载中' : '重新加载' }}
       </button>
+      <RouterLink v-else-if="surface !== 'demo'" class="entry-link" to="/demo">
+        返回身份入口
+      </RouterLink>
     </section>
 
-    <nav class="product-nav" aria-label="产品导航">
+    <nav v-if="productTabs.length" class="product-nav" aria-label="购票用户导航">
       <button
         v-for="tab in productTabs"
         :key="tab.key"
         type="button"
         :class="{ active: activeView === tab.key }"
         :aria-current="activeView === tab.key ? 'page' : undefined"
-        @click="activeView = tab.key"
+        @click="router.push(tab.path)"
       >
         <strong>{{ tab.label }}</strong>
         <span>{{ tab.detail }}</span>
       </button>
     </nav>
 
-    <section v-if="activeView === 'booking'" class="customer-hero" aria-label="车票预订首页">
+    <section v-if="surface === 'demo'" class="demo-entry" aria-labelledby="demo-entry-title">
+      <div class="demo-entry-heading">
+        <p class="eyebrow">按真实职责进入</p>
+        <h2 id="demo-entry-title">每类用户只看到自己的任务</h2>
+        <p>这些入口共享同一套业务数据，但拥有不同的网址、导航和操作边界。</p>
+      </div>
+      <div class="demo-entry-grid">
+        <RouterLink
+          v-for="entry in demoEntries"
+          :key="entry.path"
+          :to="entry.path"
+          class="demo-entry-item"
+        >
+          <span>{{ entry.role }}</span>
+          <strong>{{ entry.title }}</strong>
+          <p>{{ entry.detail }}</p>
+          <b>进入</b>
+        </RouterLink>
+      </div>
+    </section>
+
+    <section v-if="surface === 'gate'" class="surface-intro">
+      <div>
+        <p class="eyebrow">当前任务</p>
+        <h2>快速判断这张票能否入场</h2>
+      </div>
+      <p>票码查询与核销集中在同一屏，不展示购票、运营或压测功能。</p>
+    </section>
+
+    <section v-if="surface === 'ops'" class="surface-intro">
+      <div>
+        <p class="eyebrow">当前任务</p>
+        <h2>从异常请求追到订单与电子票</h2>
+      </div>
+      <p>保留 traceId 和业务对象反查，不在运营工作台录入压测数据。</p>
+    </section>
+
+    <section v-if="surface === 'lab'" class="surface-intro">
+      <div>
+        <p class="eyebrow">当前任务</p>
+        <h2>用可复核数据解释高并发方案</h2>
+      </div>
+      <p>压测记录服务于工程复盘和面试展示，不混入购票与运营流程。</p>
+    </section>
+
+    <section v-if="activeView === 'booking'" class="customer-hero" aria-label="活动票预订首页">
       <div>
         <p class="eyebrow">购票流程</p>
         <h2>选择票档，核对购票人后提交订单</h2>
@@ -1345,12 +1474,12 @@ onUnmounted(() => {
       </aside>
     </section>
 
-    <section v-if="activeView === 'evidence'" class="hook-strip" aria-label="本轮状态">
+    <section v-if="surface === 'lab'" class="hook-strip" aria-label="本轮状态">
       <p class="hook-text">{{ hookText }}</p>
       <span class="hook-badge">state</span>
     </section>
 
-    <section v-if="activeView === 'evidence'" class="home-hero" aria-label="本轮验收摘要">
+    <section v-if="surface === 'lab'" class="home-hero" aria-label="本轮验收摘要">
       <div class="hero-layout">
         <article class="summary-panel">
           <div class="panel-title-row">
@@ -2016,7 +2145,7 @@ onUnmounted(() => {
       <p v-if="ticketLookupError" class="error">{{ ticketLookupError }}</p>
     </section>
 
-    <section v-if="activeView === 'gate'" class="panel action-panel">
+    <section v-if="surface === 'gate'" class="panel action-panel">
       <div class="panel-header">
         <div>
           <h2>入场验票</h2>
@@ -2074,7 +2203,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'evidence'" class="panel action-panel request-panel">
+    <section v-if="surface === 'ops'" class="panel action-panel request-panel">
       <div class="panel-header">
         <div>
           <h2>最近请求记录</h2>
@@ -2158,7 +2287,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'evidence'" class="panel action-panel">
+    <section v-if="surface === 'lab'" class="panel action-panel">
       <div class="panel-header">
         <div>
           <h2>压测结果记录</h2>
@@ -2244,7 +2373,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'evidence'" class="panel action-panel">
+    <section v-if="surface === 'lab'" class="panel action-panel">
       <div class="panel-header">
         <div>
           <h2>H2 基线与 Redis Lua 对比</h2>
@@ -2297,7 +2426,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'evidence'" class="panel action-panel">
+    <section v-if="surface === 'ops'" class="panel action-panel">
       <div class="panel-header">
         <div>
           <h2>管理端排查</h2>

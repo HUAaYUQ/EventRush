@@ -1,17 +1,26 @@
 ---
-name: EventRush 票务产品与工程证据台
+name: EventRush 多角色活动票务平台
 domain: system
 subject: 票务订单
-purpose: 让用户先像真实票务产品一样完成预订、候补、支付、退票和验票；让学习者和面试展示者在独立入口里查看排查、压测和 traceId 证据。
+purpose: 让购票用户、验票员、平台运营和工程演示者分别在独立入口完成自己的任务，共享订单数据但不共享操作界面。
 surface: desktop
 structure: { primary: ticket_product, secondary: evidence_console }
 moment: 每次阶段验收或面试演示前
 dials: { cadence: 5, input: 4, depth: 8 }
 
 roles:
-  - { name: 学习者/演示者, opens_daily: true, does: 跑通一条订单链路，记录 orderId、ticketCode、traceId 和压测结论 }
-  - { name: 验票人员, opens_daily: false, does: 输入票码，判断能否入场 }
-  - { name: 管理排查者, opens_daily: false, does: 用 X-Admin-Key 反查用户订单、订单电子票和票码详情 }
+  - { name: 购票用户, opens_daily: true, does: 预订活动票、候补、支付、查订单、查电子票和退票 }
+  - { name: 验票员, opens_daily: true, does: 输入或扫描票码，判断能否入场并完成核销 }
+  - { name: 平台运营, opens_daily: true, does: 用 X-Admin-Key、traceId 和业务编号排查订单及电子票 }
+  - { name: 工程演示者, opens_daily: false, does: 记录压测指标，对比 H2 与 Redis Lua 方案并复核是否超卖 }
+
+surfaces:
+  - { path: /, role: 购票用户, contains: [活动票预订], excludes: [验票, 管理排查, 压测] }
+  - { path: /my, role: 购票用户, contains: [候补, 订单, 电子票, 退票], excludes: [验票, 管理排查, 压测] }
+  - { path: /gate, role: 验票员, contains: [票码查询, 入场核销], excludes: [购票, 管理排查, 压测] }
+  - { path: /ops, role: 平台运营, contains: [请求记录, traceId, 用户订单反查, 订单和票码反查], excludes: [购票, 验票, 压测录入] }
+  - { path: /lab, role: 工程演示者, contains: [验收摘要, 压测记录, H2 与 Redis Lua 对比], excludes: [购票, 验票, 管理端业务查询] }
+  - { path: /demo, role: 成果接收者, contains: [各身份入口], excludes: [具体业务操作] }
 
 hook:
   text: "本轮订单 {order.status} · 电子票 {ticket.status} · 最近失败请求可用 traceId 排查"
@@ -29,15 +38,16 @@ cold_start:
   re_entry: 距上次验收已经隔了一段时间，直接重新跑一条新链路，不需要补旧数据。
 
 home:
-  - 车票预订：活动票档选择、1 到 5 位购票人脱敏信息、订单或候补核对、提交订单、逐人出票
-  - 我的电子票：候补进度与兑现订单、订单恢复、每位购票人的独立 ticketCode、验票状态和按票退票
-  - 验票入口：票码输入、验票员 ID、入场核验结果
-  - 工程证据：hook、本轮验收摘要、最近请求记录、压测证据、管理排查
+  - 购票前台：活动票档选择、1 到 5 位购票人脱敏信息、订单或候补核对、提交订单、逐人出票
+  - 我的票务：候补进度与兑现订单、订单恢复、每位购票人的独立 ticketCode、验票状态和按票退票
+  - 验票工作台：票码输入、验票员 ID、入场核验结果
+  - 平台运营台：请求记录、traceId、用户订单与电子票反查
+  - 工程实验室：hook、本轮验收摘要、压测证据、方案对比
 
 product_boundary:
-  foreground: 车票预订、我的电子票、验票入口是产品功能，默认展示给用户或工作人员。
-  evidence: 请求记录、压测证据、后台排查和验收摘要属于工程证据，只放在单独入口，不混入购票主流程。
-  reference: 借鉴 12306 类票务产品的页面边界：先查票和下单，再处理订单、电子票、验票，工程证明不能抢占用户路径。
+  foreground: 购票用户只看到预订与我的票务；验票员只看到入场核验；平台运营只看到排查工具。
+  evidence: 压测和技术方案对比只属于工程实验室，不能伪装成消费者产品功能，也不能混入运营日常任务。
+  reference: 借鉴 12306 的任务分区、订单恢复和候补心智，不复制铁路术语；EventRush 的业务对象始终是活动、场次和票档。
 
 channels:
   - name: 票务链路
@@ -133,13 +143,13 @@ deferred:
   - 多角色登录：等管理端权限升级阶段再做。
 ---
 
-## 这个台子是给谁的
+## 这些入口是给谁的
 
-这是给学习者和面试展示者用的桌面 Web 工作台。它围着“票务订单”转，因为一条可验收链路最终要落到 `orderId`、`ticketCode`、订单状态、电子票状态和 `traceId` 上。
+这是共享同一套订单数据的多角色 Web 产品。购票用户完成交易，验票员处理入场，平台运营排查异常，工程演示者复核高并发证据。角色之间通过独立 URL 隔离任务，而不是在一页里切换身份。
 
 ## 每次怎么用
 
-每次阶段验收或面试演示前，先选择一个有库存的票档，然后依次完成抢票、支付、查票、验票，再用管理端反查同一条链路。最后回看最近请求记录和压测证据，说明项目不是只会跑接口，而是有业务状态、错误边界和排查线索。
+从 `/demo` 选择身份；购票链路在 `/` 和 `/my` 完成，随后用 `/gate` 验票、用 `/ops` 反查同一条订单，最后只在 `/lab` 展示压测与方案对比。业务链路仍然共享 `orderId`、`ticketCode` 和 `traceId`。
 
 ## 为什么是这几个模块
 
@@ -159,7 +169,8 @@ deferred:
 - 默认首屏是 `home` 里的“车票预订”，不要先展示压测、请求记录或后台排查。
 - `hook.text` 只在“工程证据”入口里展示，不要压在购票用户首屏上。
 - 空数据时显示 `cold_start.day_1`，不要显示空表、`--` 或假数据。
-- 顶部导航必须把前台产品和工程证据分开，`weight: primary` 的“票务链路”映射为“车票预订”。
+- 购票前台顶部只允许出现“活动票预订”和“我的订单与票”，不得出现验票、运营或工程入口。
+- 独立网址刷新后必须保持当前身份，不得退回单页默认视图。
 - 每个模块按 `pages` 建，`shows` 决定屏幕形态。不要把所有模块都做成一样的表格。
 - `entities` 是数据来源说明，`written_by` 决定哪些字段来自用户输入，哪些来自系统响应。
 - `depends_on` 里的自动压测历史目前没有后端接口，不要在首屏假装已有历史趋势。

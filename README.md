@@ -90,6 +90,19 @@ npm.cmd run dev
 http://localhost:5173
 ```
 
+前端按真实职责提供独立网址：
+
+| 网址 | 使用者 | 主要任务 |
+| --- | --- | --- |
+| `/` | 购票用户 | 活动票预订、购票人核对、支付出票 |
+| `/my` | 购票用户 | 候补、订单、电子票和退票 |
+| `/gate` | 验票员 | 票码查询与入场核销 |
+| `/ops` | 平台运营 | 请求记录、traceId、订单与票务反查 |
+| `/lab` | 工程演示者 | 压测记录和 H2 / Redis Lua 对比 |
+| `/demo` | 成果接收者 | 选择演示身份和入口 |
+
+这些页面共享业务数据，但不共享导航和操作边界。购票用户不会在前台看到验票、运营或压测功能。
+
 前端通过 Vite 代理把 `/api` 请求转发到：
 
 ```text
@@ -280,6 +293,12 @@ docs/stage-49-acceptance.md
 docs/stage-50-acceptance.md
 ```
 
+多角色产品边界与独立入口验收：
+
+```text
+docs/stage-51-acceptance.md
+```
+
 项目阶段总览：
 
 ```text
@@ -355,6 +374,7 @@ docs/stage-2-acceptance.md
 ...
 docs/stage-49-acceptance.md
 docs/stage-50-acceptance.md
+docs/stage-51-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。
