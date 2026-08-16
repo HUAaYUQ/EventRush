@@ -3,6 +3,7 @@ package com.eventrush.api;
 import com.eventrush.domain.EventSession;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
+import com.eventrush.domain.OrganizerOrderSummary;
 import com.eventrush.domain.TicketCategory;
 import com.eventrush.service.OrganizerEventService;
 import jakarta.validation.Valid;
@@ -39,6 +40,11 @@ class OrganizerController {
     @GetMapping("/{eventId}")
     OrganizerEvent getEvent(@PathVariable Long eventId) {
         return organizerEventService.getEvent(eventId);
+    }
+
+    @GetMapping("/{eventId}/orders")
+    List<OrganizerOrderSummary> listOrders(@PathVariable Long eventId) {
+        return organizerEventService.listOrders(eventId);
     }
 
     @PostMapping

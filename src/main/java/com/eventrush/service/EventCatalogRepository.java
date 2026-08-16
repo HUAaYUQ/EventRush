@@ -4,6 +4,8 @@ import com.eventrush.domain.Event;
 import com.eventrush.domain.EventSession;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
+import com.eventrush.domain.OrganizerOrderSummary;
+import com.eventrush.domain.OrderStatus;
 import com.eventrush.domain.TicketCategory;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -110,6 +112,49 @@ public class EventCatalogRepository {
                         .orElseThrow(() -> new BusinessException("event loading failed")),
                 organizerId
         );
+    }
+
+    public List<OrganizerOrderSummary> listOrganizerOrders(Long eventId, Long organizerId) {
+        requireOwnedEvent(eventId, organizerId);
+        return jdbcTemplate.query("""
+                        SELECT ticket_order.id, ticket_order.user_id, ticket_order.session_id,
+                               ticket_order.ticket_category_id, ticket_category_catalog.name AS category_name,
+                               event_session_catalog.start_time, ticket_order.quantity,
+                               ticket_order.refunded_quantity, ticket_order.amount_cents,
+                               ticket_order.order_status, ticket_order.created_time, ticket_order.pay_time,
+                               COALESCE(ticket_counts.issued_count, 0) AS issued_count,
+                               COALESCE(ticket_counts.refunded_count, 0) AS refunded_count
+                        FROM ticket_order
+                        JOIN event_session_catalog
+                          ON event_session_catalog.id = ticket_order.session_id
+                        JOIN ticket_category_catalog
+                          ON ticket_category_catalog.id = ticket_order.ticket_category_id
+                        LEFT JOIN (
+                            SELECT order_id,
+                                   COUNT(*) AS issued_count,
+                                   SUM(CASE WHEN ticket_status = 'REFUNDED' THEN 1 ELSE 0 END) AS refunded_count
+                            FROM electronic_ticket
+                            GROUP BY order_id
+                        ) ticket_counts ON ticket_counts.order_id = ticket_order.id
+                        WHERE ticket_order.event_id = ?
+                        ORDER BY ticket_order.created_time DESC, ticket_order.id DESC
+                        """,
+                (resultSet, rowNumber) -> new OrganizerOrderSummary(
+                        resultSet.getLong("id"),
+                        resultSet.getLong("user_id"),
+                        resultSet.getLong("session_id"),
+                        resultSet.getLong("ticket_category_id"),
+                        resultSet.getString("category_name"),
+                        resultSet.getObject("start_time", LocalDateTime.class),
+                        resultSet.getInt("quantity"),
+                        resultSet.getInt("refunded_quantity"),
+                        resultSet.getLong("amount_cents"),
+                        OrderStatus.valueOf(resultSet.getString("order_status")),
+                        resultSet.getObject("created_time", LocalDateTime.class),
+                        resultSet.getObject("pay_time", LocalDateTime.class),
+                        resultSet.getInt("issued_count"),
+                        resultSet.getInt("refunded_count")
+                ), eventId);
     }
 
     public Optional<OrganizerEvent> findOrganizerEvent(Long eventId, Long organizerId) {

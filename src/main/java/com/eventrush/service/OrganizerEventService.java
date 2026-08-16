@@ -3,6 +3,7 @@ package com.eventrush.service;
 import com.eventrush.domain.EventSession;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
+import com.eventrush.domain.OrganizerOrderSummary;
 import com.eventrush.domain.TicketCategory;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,6 +29,10 @@ public class OrganizerEventService {
         return repository.findOrganizerEvent(eventId, DEMO_ORGANIZER_ID)
                 .orElseThrow(() -> new BusinessException(
                         "EVENT_NOT_FOUND", HttpStatus.NOT_FOUND, "活动不存在或不属于当前主办方"));
+    }
+
+    public List<OrganizerOrderSummary> listOrders(Long eventId) {
+        return repository.listOrganizerOrders(eventId, DEMO_ORGANIZER_ID);
     }
 
     public OrganizerEvent createDraft(

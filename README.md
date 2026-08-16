@@ -384,6 +384,7 @@ docs/stage-51-acceptance.md
 docs/stage-52-acceptance.md
 docs/stage-53-acceptance.md
 docs/stage-54-acceptance.md
+docs/stage-55-acceptance.md
 ```
 
 这些文档适合用来复习“每一步为什么做、交付了什么、怎么验收、面试怎么说”。

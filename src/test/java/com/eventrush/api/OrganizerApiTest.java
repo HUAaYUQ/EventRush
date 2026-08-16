@@ -63,7 +63,7 @@ class OrganizerApiTest {
                                 """))
                 .andExpect(status().isOk()).andReturn());
 
-        mockMvc.perform(post("/api/organizer/events/%d/sessions/%d/ticket-categories"
+        Long categoryId = dataId(mockMvc.perform(post("/api/organizer/events/%d/sessions/%d/ticket-categories"
                         .formatted(eventId, sessionId))
                         .header("X-Organizer-Key", KEY)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -71,7 +71,8 @@ class OrganizerApiTest {
                                 {"name":"预售票","priceCents":9900,"totalStock":120}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.remainingStock").value(120));
+                .andExpect(jsonPath("$.data.remainingStock").value(120))
+                .andReturn());
 
         mockMvc.perform(post("/api/organizer/events/%d/publish".formatted(eventId))
                         .header("X-Organizer-Key", KEY))
@@ -86,6 +87,26 @@ class OrganizerApiTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.title").value("入场提醒"));
+
+        mockMvc.perform(post("/api/orders/grab")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "userId":88001,
+                                  "sessionId":%d,
+                                  "ticketCategoryId":%d,
+                                  "passengers":[{"name":"测试购票人","documentType":"OTHER","documentLast4":"8001"}]
+                                }
+                                """.formatted(sessionId, categoryId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/organizer/events/%d/orders".formatted(eventId))
+                        .header("X-Organizer-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].userId").value(88001))
+                .andExpect(jsonPath("$.data[0].ticketCategoryName").value("预售票"))
+                .andExpect(jsonPath("$.data[0].quantity").value(1))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING_PAYMENT"));
 
         mockMvc.perform(get("/api/events/%d".formatted(eventId)))
                 .andExpect(status().isOk())

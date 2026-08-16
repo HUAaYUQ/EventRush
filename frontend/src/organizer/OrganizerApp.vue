@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Bell, CalendarDays, Check, ChevronRight, ExternalLink, KeyRound, LayoutDashboard, Menu, Plus, Save, Ticket, X } from 'lucide-vue-next'
+import { ArrowLeft, Bell, CalendarDays, Check, ChevronRight, ClipboardList, ExternalLink, KeyRound, LayoutDashboard, Menu, Plus, Save, Ticket, X } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,6 +13,9 @@ const error = ref('')
 const success = ref('')
 const events = ref([])
 const event = ref(null)
+const eventOrders = ref([])
+const ordersLoading = ref(false)
+const ordersError = ref('')
 const tab = ref('overview')
 const railOpen = ref(false)
 const step = ref(0)
@@ -37,6 +40,12 @@ const stats = computed(() => ({
   drafts: events.value.filter((item) => item.status === 'DRAFT').length,
   tickets: events.value.reduce((sum, item) => sum + ticketCount(item), 0),
 }))
+const orderStats = computed(() => ({
+  total: eventOrders.value.length,
+  paid: eventOrders.value.filter((item) => ['PAID', 'PARTIALLY_REFUNDED'].includes(item.status)).length,
+  refunding: eventOrders.value.filter((item) => item.refundedQuantity > 0).length,
+  issued: eventOrders.value.reduce((sum, item) => sum + Number(item.issuedTicketCount || 0), 0),
+}))
 const checks = computed(() => [
   { label: '活动信息', ok: !!(draft.value.name.trim() && draft.value.location.trim()), value: draft.value.name ? `${draft.value.name} · ${draft.value.location}` : '请填写名称和地点', step: 0 },
   { label: '场次时间', ok: validTime(draft.value), value: validTime(draft.value) ? `${fmtDate(draft.value.startTime)} 至 ${fmtDate(draft.value.endTime)}` : '结束时间必须晚于开始时间', step: 1 },
@@ -51,6 +60,21 @@ function money(cents) { return new Intl.NumberFormat('zh-CN', { style: 'currency
 function poster(value) { return value?.['posterUrl'] || '/images/events/campus-music-night.jpg' }
 function imageAttrs(value, alt = '活动封面') { return { src: poster(value), alt } }
 function status(statusValue) { return statusValue === 'PUBLISHED' ? '已发布' : '草稿' }
+function orderStatus(statusValue) {
+  return {
+    PENDING_PAYMENT: '待付款',
+    PAID: '已付款',
+    PARTIALLY_REFUNDED: '部分退款',
+    REFUNDED: '已退款',
+    CANCELED: '已取消',
+  }[statusValue] || statusValue || '未知状态'
+}
+function orderStatusTone(statusValue) {
+  if (statusValue === 'PAID') return 'paid'
+  if (statusValue === 'PARTIALLY_REFUNDED') return 'partial'
+  if (['REFUNDED', 'CANCELED'].includes(statusValue)) return 'closed'
+  return 'pending'
+}
 function validTime(value) { return value.startTime && value.endTime && new Date(value.endTime) > new Date(value.startTime) }
 function validTicket(value) { return value.categoryName?.trim() && Number(value.priceYuan) >= 0 && Number(value.totalStock) >= 1 }
 function ticketCount(item) { return (item.sessions || []).flatMap((session) => session.ticketCategories || []).reduce((sum, category) => sum + Number(category.totalStock || 0), 0) }
@@ -75,9 +99,22 @@ async function load() {
       event.value = await api(`/api/organizer/events/${route.params.eventId}`)
       detail.value = { name: event.value.name, location: event.value.location, description: event.value.description, posterUrl: event.value.posterUrl }
       categoryForm.value.sessionId ||= String(event.value.sessions?.[0]?.id || '')
+      await loadOrders(event.value.id)
     }
     if (screen.value === 'organizer-create') restore()
   } catch (caught) { error.value = caught.message } finally { loading.value = false }
+}
+async function loadOrders(eventId) {
+  ordersLoading.value = true
+  ordersError.value = ''
+  try {
+    eventOrders.value = await api(`/api/organizer/events/${eventId}/orders`)
+  } catch (caught) {
+    eventOrders.value = []
+    ordersError.value = caught.message
+  } finally {
+    ordersLoading.value = false
+  }
 }
 async function reconnect() { localStorage.setItem('eventrush-organizer-key', key.value); authorized.value = true; await load() }
 function restore() {
@@ -178,9 +215,10 @@ onMounted(load)
 
         <template v-else-if="event">
           <header class="org-page-head"><div><RouterLink class="org-back" to="/organizer/events"><ArrowLeft />活动列表</RouterLink><div class="org-title"><span :data-status="event.status">{{ status(event.status) }}</span><h1>{{ event.name }}</h1></div><p>{{ event.location }} · 活动编号 {{ event.id }}</p></div><RouterLink v-if="event.status==='PUBLISHED'" class="org-secondary" :to="`/events/${event.id}`"><ExternalLink />查看购票页</RouterLink></header>
-          <nav class="org-tabs"><button v-for="item in [{k:'overview',l:'概览'},{k:'sessions',l:'场次与票档'},{k:'notices',l:'通知'}]" :key="item.k" :class="{active:tab===item.k}" @click="tab=item.k">{{ item.l }}</button></nav>
+          <nav class="org-tabs"><button v-for="item in [{k:'overview',l:'概览'},{k:'sessions',l:'场次与票档'},{k:'orders',l:'订单与售后'},{k:'notices',l:'通知'}]" :key="item.k" :class="{active:tab===item.k}" @click="tab=item.k">{{ item.l }}</button></nav>
           <section v-if="tab==='overview'" class="org-detail"><form @submit.prevent="saveDetail"><header><div><h2>活动信息</h2><p>修改后同步到购票目录。</p></div><button class="org-primary"><Save />保存修改</button></header><div class="org-fields"><label class="wide"><span>活动名称 *</span><input v-model="detail.name" /></label><label><span>活动地点 *</span><input v-model="detail.location" /></label><label><span>封面地址</span><input v-model="detail.posterUrl" /></label><label class="wide"><span>活动介绍</span><textarea v-model="detail.description" rows="6"></textarea></label></div></form><aside><img v-bind="imageAttrs(event)" /><dl><div><dt>活动状态</dt><dd>{{ status(event.status) }}</dd></div><div><dt>场次数</dt><dd>{{ event.sessions.length }}</dd></div><div><dt>配置票数</dt><dd>{{ ticketCount(event) }}</dd></div><div><dt>发布时间</dt><dd>{{ fmtDate(event.publishedTime) }}</dd></div></dl></aside></section>
           <section v-else-if="tab==='sessions'" class="org-manage"><div class="org-sessions"><header><h2>场次与票档</h2><p>按场次检查时间、价格与剩余库存。</p></header><article v-for="session in event.sessions" :key="session.id"><header><div><CalendarDays /><strong>{{ fmtDate(session.startTime) }}</strong><span>至 {{ fmtDate(session.endTime) }}</span></div><button @click="editSession(session)">编辑场次</button></header><div class="org-ticket-row head"><span>票档</span><span>票价</span><span>总票数</span><span>剩余</span><span></span></div><div v-for="cat in session.ticketCategories" :key="cat.id" class="org-ticket-row"><strong>{{ cat.name }}</strong><span>{{ money(cat.priceCents) }}</span><span>{{ cat.totalStock }}</span><span>{{ cat.remainingStock }}</span><button @click="editCategory(cat)">编辑</button></div></article></div><aside class="org-tools"><form @submit.prevent="saveManagedSession"><h3><CalendarDays />{{ sessionForm.id?'编辑场次':'添加场次' }}</h3><label><span>开始时间</span><input v-model="sessionForm.startTime" type="datetime-local" /></label><label><span>结束时间</span><input v-model="sessionForm.endTime" type="datetime-local" /></label><button class="org-primary">保存场次</button></form><form @submit.prevent="saveManagedCategory"><h3><Ticket />{{ categoryForm.id?'编辑票档':'添加票档' }}</h3><label><span>所属场次</span><select v-model="categoryForm.sessionId"><option value="" disabled>选择场次</option><option v-for="s in event.sessions" :key="s.id" :value="String(s.id)">{{ fmtDate(s.startTime) }}</option></select></label><label><span>票档名称</span><input v-model="categoryForm.name" /></label><div><label><span>票价（元）</span><input v-model.number="categoryForm.priceYuan" type="number" min="0" /></label><label><span>总票数</span><input v-model.number="categoryForm.totalStock" type="number" min="1" /></label></div><button class="org-primary">保存票档</button></form></aside></section>
+          <section v-else-if="tab==='orders'" class="org-orders"><header class="org-orders-head"><div><h2>订单与售后</h2><p>只读查看订单状态、退票进度与出票结果，退款操作仍由购票用户发起。</p></div><button class="org-secondary" :disabled="ordersLoading" @click="loadOrders(event.id)"><ClipboardList />{{ ordersLoading ? '刷新中' : '刷新订单' }}</button></header><div class="org-order-stats"><div><span>订单总数</span><strong>{{ orderStats.total }}</strong></div><div><span>已付款订单</span><strong>{{ orderStats.paid }}</strong></div><div><span>发生退票</span><strong>{{ orderStats.refunding }}</strong></div><div><span>已出票</span><strong>{{ orderStats.issued }}</strong></div></div><p v-if="ordersError" class="org-message error">{{ ordersError }}</p><div v-if="ordersLoading" class="org-order-empty"><ClipboardList /><p>正在读取订单摘要…</p></div><div v-else-if="!eventOrders.length" class="org-order-empty"><ClipboardList /><h3>暂时没有订单</h3><p>用户完成下单后，订单状态会在这里按场次汇总。</p></div><div v-else class="org-order-list"><article v-for="order in eventOrders" :key="order.id" class="org-order-row"><div class="org-order-main"><div class="org-order-id"><strong>#{{ order.id }}</strong><span :class="`org-order-status ${orderStatusTone(order.status)}`">{{ orderStatus(order.status) }}</span></div><p>用户 {{ order.userId }} · {{ order.ticketCategoryName }} · {{ fmtDate(order.sessionStartTime) }}</p></div><dl><div><dt>数量</dt><dd>{{ order.quantity }} 张</dd></div><div><dt>金额</dt><dd>{{ money(order.amountCents) }}</dd></div><div><dt>退票</dt><dd>{{ order.refundedQuantity }} 张</dd></div><div><dt>出票</dt><dd>{{ order.issuedTicketCount }} 张</dd></div></dl><time>{{ fmtDate(order.createdTime) }}</time></article></div></section>
           <section v-else class="org-notices"><div><header><h2>已发布通知</h2><p>只发布确实影响用户行程的信息。</p></header><article v-for="item in event.notices" :key="item.id"><Bell /><div><span>{{ fmtDate(item.publishedTime) }}</span><h3>{{ item.title }}</h3><p>{{ item.content }}</p></div></article><p v-if="!event.notices.length" class="org-empty-inline"><Bell />暂时没有通知。</p></div><form @submit.prevent="publishNotice"><h3><Bell />发布通知</h3><p>写清变化、何时生效以及用户需要做什么。</p><label><span>通知标题 *</span><input v-model="notice.title" /></label><label><span>通知内容 *</span><textarea v-model="notice.content" rows="7"></textarea></label><button class="org-primary" :disabled="event.status!=='PUBLISHED'">{{ event.status==='PUBLISHED'?'发布通知':'活动发布后可用' }}</button></form></section>
         </template>
       </div>
