@@ -8,6 +8,8 @@ public record TicketOrder(
         Long eventId,
         Long sessionId,
         Long ticketCategoryId,
+        long unitPriceCents,
+        long amountCents,
         OrderStatus status,
         LocalDateTime createdTime,
         LocalDateTime payTime,
@@ -16,12 +18,12 @@ public record TicketOrder(
 ) {
 
     public TicketOrder paid(LocalDateTime payTime) {
-        return new TicketOrder(id, userId, eventId, sessionId, ticketCategoryId, OrderStatus.PAID,
+        return new TicketOrder(id, userId, eventId, sessionId, ticketCategoryId, unitPriceCents, amountCents, OrderStatus.PAID,
                 createdTime, payTime, cancelTime, expireTime);
     }
 
     public TicketOrder canceled(LocalDateTime cancelTime) {
-        return new TicketOrder(id, userId, eventId, sessionId, ticketCategoryId, OrderStatus.CANCELED,
+        return new TicketOrder(id, userId, eventId, sessionId, ticketCategoryId, unitPriceCents, amountCents, OrderStatus.CANCELED,
                 createdTime, payTime, cancelTime, expireTime);
     }
 }

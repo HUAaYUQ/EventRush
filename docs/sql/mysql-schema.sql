@@ -7,12 +7,15 @@ CREATE TABLE IF NOT EXISTS ticket_order (
     event_id BIGINT NOT NULL,
     session_id BIGINT NOT NULL,
     ticket_category_id BIGINT NOT NULL,
+    unit_price_cents BIGINT NOT NULL,
+    amount_cents BIGINT NOT NULL,
+    active_grab_key VARCHAR(96) NULL,
     order_status VARCHAR(32) NOT NULL,
     created_time DATETIME NOT NULL,
     pay_time DATETIME NULL,
     cancel_time DATETIME NULL,
     expire_time DATETIME NOT NULL,
-    UNIQUE KEY uk_ticket_order_once (user_id, session_id, ticket_category_id),
+    UNIQUE KEY uk_ticket_order_active (active_grab_key),
     KEY idx_ticket_order_user (user_id),
     KEY idx_ticket_order_status_expire (order_status, expire_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const events = ref([])
 const loading = ref(false)
@@ -7,7 +7,7 @@ const error = ref('')
 const traceId = ref('')
 const selectedSessionId = ref(null)
 const selectedTicketCategoryId = ref(null)
-const userId = ref(Math.floor(10000 + Math.random() * 90000))
+const userId = ref(getOrCreateDemoUserId())
 const grabLoading = ref(false)
 const grabError = ref('')
 const grabTraceId = ref('')
@@ -16,6 +16,9 @@ const payLoading = ref(false)
 const payError = ref('')
 const payTraceId = ref('')
 const ticket = ref(null)
+const myOrders = ref([])
+const myOrdersLoading = ref(false)
+const myOrdersError = ref('')
 const ticketLookupCode = ref('')
 const ticketLookupLoading = ref(false)
 const ticketLookupError = ref('')
@@ -31,6 +34,9 @@ const adminOrdersTraceId = ref('')
 const adminTicketByOrderTraceId = ref('')
 const adminTicketByCodeTraceId = ref('')
 const requestRecords = ref([])
+const now = ref(Date.now())
+let clockTimer = null
+let expirySyncTimer = null
 const adminOrders = ref([])
 const adminTicketByOrder = ref(null)
 const adminTicketByCode = ref(null)
@@ -102,6 +108,18 @@ const selectedTicket = computed(() =>
       option.category.id === selectedTicketCategoryId.value,
   ),
 )
+
+const remainingPaymentSeconds = computed(() => {
+  if (!order.value || order.value.status !== 'PENDING_PAYMENT') {
+    return 0
+  }
+
+  return Math.max(0, Math.ceil((new Date(order.value.expireTime).getTime() - now.value) / 1000))
+})
+
+const orderCountdown = computed(() => formatCountdown(remainingPaymentSeconds.value))
+
+const currentOrderContext = computed(() => getOrderContext(order.value))
 
 const pressureSuccessRate = computed(() => {
   const total = Number(pressureSuccess.value) + Number(pressureFailed.value)
@@ -269,6 +287,78 @@ const pressureHeroItems = computed(() => [
   { label: '系统异常', value: pressureSystemErrors.value || 0, danger: Number(pressureSystemErrors.value) > 0 },
 ])
 
+class ApiRequestError extends Error {
+  constructor(message, code) {
+    super(message)
+    this.code = code
+  }
+}
+
+function getOrCreateDemoUserId() {
+  const stored = Number(window.localStorage.getItem('eventrush-demo-user-id'))
+  if (Number.isInteger(stored) && stored > 0) {
+    return stored
+  }
+
+  const created = Math.floor(10000 + Math.random() * 90000)
+  window.localStorage.setItem('eventrush-demo-user-id', String(created))
+  return created
+}
+
+function formatMoney(cents) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+  }).format(Number(cents ?? 0) / 100)
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return '待确认'
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
+}
+
+function formatCountdown(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+function orderStatusLabel(status) {
+  return {
+    PENDING_PAYMENT: '待支付',
+    PAID: '已出票',
+    CANCELED: '已取消',
+  }[status] ?? status
+}
+
+function ticketStatusLabel(status) {
+  return {
+    VALID: '待入场',
+    VERIFIED: '已入场',
+  }[status] ?? status
+}
+
+function getOrderContext(targetOrder) {
+  if (!targetOrder) {
+    return null
+  }
+
+  return ticketOptions.value.find(
+    (option) =>
+      option.session.id === targetOrder.sessionId &&
+      option.category.id === targetOrder.ticketCategoryId,
+  ) ?? null
+}
+
 function addRequestRecord(record) {
   requestRecords.value = [
     {
@@ -303,7 +393,7 @@ async function requestJson(action, method, path, options = {}, summarize = () =>
     })
 
     if (!success) {
-      throw new Error(payload.message || `${action}失败`)
+      throw new ApiRequestError(payload.message || `${action}失败`, payload.code)
     }
 
     return { payload, traceId: nextTraceId }
@@ -369,6 +459,65 @@ async function loadEvents() {
   }
 }
 
+async function loadMyOrders() {
+  myOrdersLoading.value = true
+  myOrdersError.value = ''
+
+  try {
+    const { payload } = await requestJson(
+      '加载我的订单',
+      'GET',
+      `/api/users/${userId.value}/orders`,
+      {},
+      (data) => `订单 ${data?.length ?? 0} 条`,
+    )
+    myOrders.value = payload.data ?? []
+  } catch (caught) {
+    myOrders.value = []
+    myOrdersError.value = caught instanceof Error ? caught.message : '订单列表加载失败'
+  } finally {
+    myOrdersLoading.value = false
+  }
+}
+
+function continuePayment(targetOrder) {
+  order.value = targetOrder
+  ticket.value = null
+  selectTicket(targetOrder.sessionId, targetOrder.ticketCategoryId)
+  activeView.value = 'booking'
+}
+
+function buyAgain(targetOrder) {
+  order.value = null
+  ticket.value = null
+  ticketLookupCode.value = ''
+  selectTicket(targetOrder.sessionId, targetOrder.ticketCategoryId)
+  activeView.value = 'booking'
+}
+
+async function viewOrderTicket(targetOrder) {
+  ticketLookupLoading.value = true
+  ticketLookupError.value = ''
+  order.value = targetOrder
+
+  try {
+    const { payload, traceId: nextTraceId } = await requestJson(
+      '打开订单电子票',
+      'GET',
+      `/api/users/${userId.value}/orders/${targetOrder.id}/ticket`,
+      {},
+      (data) => `${data.ticketCode} ${data.status}`,
+    )
+    ticketLookupTraceId.value = nextTraceId
+    ticket.value = payload.data
+    ticketLookupCode.value = ticket.value.ticketCode
+  } catch (caught) {
+    ticketLookupError.value = caught instanceof Error ? caught.message : '电子票加载失败'
+  } finally {
+    ticketLookupLoading.value = false
+  }
+}
+
 async function grabTicket() {
   if (!selectedTicket.value) {
     grabError.value = '请先选择票档'
@@ -413,8 +562,13 @@ async function grabTicket() {
 
     order.value = payload.data
     await loadEvents()
+    await loadMyOrders()
   } catch (caught) {
     grabError.value = caught instanceof Error ? caught.message : '抢票失败'
+    if (caught instanceof ApiRequestError && caught.code === 'DUPLICATE_GRAB') {
+      await loadMyOrders()
+      activeView.value = 'tickets'
+    }
   } finally {
     grabLoading.value = false
   }
@@ -511,7 +665,7 @@ async function refreshOrder(orderId) {
   const { payload } = await requestJson(
     '刷新订单',
     'GET',
-    `/api/orders/${orderId}`,
+    `/api/users/${userId.value}/orders/${orderId}`,
     {},
     (data) => `orderId=${data.id} ${data.status}`,
   )
@@ -536,7 +690,7 @@ async function payOrder() {
     const { payload, traceId: nextTraceId } = await requestJson(
       '支付出票',
       'POST',
-      `/api/orders/${order.value.id}/pay`,
+      `/api/users/${userId.value}/orders/${order.value.id}/pay`,
       {},
       (data) => `ticketCode=${data.ticketCode}`,
     )
@@ -545,8 +699,14 @@ async function payOrder() {
     ticket.value = payload.data
     ticketLookupCode.value = ticket.value.ticketCode
     await refreshOrder(order.value.id)
+    await loadMyOrders()
+    activeView.value = 'tickets'
   } catch (caught) {
     payError.value = caught instanceof Error ? caught.message : '支付失败'
+    if (caught instanceof ApiRequestError && caught.code === 'ORDER_EXPIRED') {
+      await refreshOrder(order.value.id)
+      await Promise.all([loadEvents(), loadMyOrders()])
+    }
   } finally {
     payLoading.value = false
   }
@@ -569,7 +729,9 @@ async function lookupTicket() {
     const { payload, traceId: nextTraceId } = await requestJson(
       '查询电子票',
       'GET',
-      `/api/tickets/${encodeURIComponent(code)}`,
+      activeView.value === 'tickets'
+        ? `/api/users/${userId.value}/tickets/${encodeURIComponent(code)}`
+        : `/api/tickets/${encodeURIComponent(code)}`,
       {},
       (data) => `${data.ticketCode} ${data.status}`,
     )
@@ -577,6 +739,9 @@ async function lookupTicket() {
 
     ticket.value = payload.data
     ticketLookupCode.value = ticket.value.ticketCode
+    if (activeView.value === 'tickets') {
+      await refreshOrder(ticket.value.orderId)
+    }
   } catch (caught) {
     ticketLookupError.value = caught instanceof Error ? caught.message : '电子票查询失败'
   } finally {
@@ -644,7 +809,39 @@ async function copyTraceId(nextTraceId) {
   }, 1800)
 }
 
-onMounted(loadEvents)
+watch(activeView, (nextView) => {
+  if (nextView === 'tickets') {
+    loadMyOrders()
+  }
+})
+
+watch(remainingPaymentSeconds, (seconds, previousSeconds) => {
+  if (seconds !== 0 || previousSeconds === 0 || !order.value) {
+    return
+  }
+
+  window.clearTimeout(expirySyncTimer)
+  expirySyncTimer = window.setTimeout(async () => {
+    try {
+      await refreshOrder(order.value.id)
+      await Promise.all([loadEvents(), loadMyOrders()])
+    } catch (caught) {
+      payError.value = caught instanceof Error ? caught.message : '订单状态同步失败'
+    }
+  }, 6000)
+})
+
+onMounted(async () => {
+  clockTimer = window.setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+  await Promise.all([loadEvents(), loadMyOrders()])
+})
+
+onUnmounted(() => {
+  window.clearInterval(clockTimer)
+  window.clearTimeout(expirySyncTimer)
+})
 </script>
 
 <template>
@@ -685,8 +882,9 @@ onMounted(loadEvents)
       <aside class="booking-side">
         <article class="booking-status">
           <span>当前订单</span>
-          <strong>{{ order ? `#${order.id} · ${order.status}` : '尚未下单' }}</strong>
-          <p>{{ ticket ? `电子票 ${ticket.ticketCode} · ${ticket.status}` : '支付后生成电子票' }}</p>
+          <strong>{{ order ? `#${order.id} · ${orderStatusLabel(order.status)}` : '尚未下单' }}</strong>
+          <p v-if="order?.status === 'PENDING_PAYMENT'">剩余支付时间 {{ orderCountdown }}</p>
+          <p v-else>{{ ticket ? `电子票 ${ticket.ticketCode} · ${ticketStatusLabel(ticket.status)}` : '支付后生成电子票' }}</p>
         </article>
 
         <article class="boundary-card">
@@ -798,13 +996,13 @@ onMounted(loadEvents)
         <article v-for="event in events" :key="event.id" class="event-row">
           <div class="event-main">
             <p class="event-name">{{ event.name }}</p>
-            <p class="event-meta">ID {{ event.id }} · {{ event.location }} · {{ event.status }}</p>
+            <p class="event-meta">{{ event.location }} · 当前可购</p>
           </div>
           <div class="session-list">
             <div v-for="session in event.sessions" :key="session.id" class="session-row">
               <div>
-                <p class="session-title">场次 {{ session.id }}</p>
-                <p class="event-meta">{{ session.startTime }} 至 {{ session.endTime }}</p>
+                <p class="session-title">{{ formatDateTime(session.startTime) }} 开场</p>
+                <p class="event-meta">预计 {{ formatDateTime(session.endTime) }} 结束</p>
               </div>
               <div class="ticket-list">
                 <button
@@ -819,7 +1017,9 @@ onMounted(loadEvents)
                   }"
                   @click="selectTicket(session.id, category.id)"
                 >
-                  {{ category.name }} · 余 {{ category.remainingStock }}
+                  <span>{{ category.name }}</span>
+                  <strong>{{ formatMoney(category.priceCents) }}</strong>
+                  <small>余 {{ category.remainingStock }}</small>
                 </button>
               </div>
             </div>
@@ -837,10 +1037,10 @@ onMounted(loadEvents)
 
       <div class="grab-layout">
         <div class="form-grid">
-          <label>
-            <span>用户 ID</span>
-            <input v-model.number="userId" type="number" min="1" />
-          </label>
+          <div class="identity-field">
+            <span>购票身份</span>
+            <strong>本机演示用户 #{{ userId }}</strong>
+          </div>
           <label>
             <span>场次 ID</span>
             <input :value="selectedSessionId ?? ''" readonly />
@@ -864,8 +1064,8 @@ onMounted(loadEvents)
           <template v-if="selectedTicket">
             <p>{{ selectedTicket.event.name }}</p>
             <p class="event-meta">
-              场次 {{ selectedTicket.session.id }} · {{ selectedTicket.category.name }} · 剩余
-              {{ selectedTicket.category.remainingStock }}
+              {{ formatDateTime(selectedTicket.session.startTime) }} · {{ selectedTicket.category.name }} ·
+              {{ formatMoney(selectedTicket.category.priceCents) }} · 剩余 {{ selectedTicket.category.remainingStock }}
             </p>
           </template>
           <p v-else class="event-meta">暂无可选票档。</p>
@@ -879,9 +1079,11 @@ onMounted(loadEvents)
           <span>orderId</span>
           <strong>{{ order.id }}</strong>
           <span>订单状态</span>
-          <strong>{{ order.status }}</strong>
-          <span>支付截止</span>
-          <strong>{{ order.expireTime }}</strong>
+          <strong>{{ orderStatusLabel(order.status) }}</strong>
+          <span>应付金额</span>
+          <strong>{{ formatMoney(order.amountCents) }}</strong>
+          <span>剩余时间</span>
+          <strong>{{ order.status === 'PENDING_PAYMENT' ? orderCountdown : '已结束' }}</strong>
         </div>
       </div>
     </section>
@@ -897,8 +1099,15 @@ onMounted(loadEvents)
         <div class="selected-box">
           <p class="box-title">当前订单</p>
           <template v-if="order">
-            <p>订单 {{ order.id }}</p>
-            <p class="event-meta">状态 {{ order.status }} · 用户 {{ order.userId }}</p>
+            <p>{{ currentOrderContext?.event.name ?? `订单 #${order.id}` }}</p>
+            <p class="event-meta">
+              {{ currentOrderContext?.category.name ?? '已选票档' }} · 1 张 ·
+              {{ formatMoney(order.amountCents) }}
+            </p>
+            <p v-if="order.status === 'PENDING_PAYMENT'" class="payment-deadline">
+              请在 {{ orderCountdown }} 内完成支付
+            </p>
+            <p v-else class="event-meta">{{ orderStatusLabel(order.status) }}</p>
           </template>
           <p v-else class="event-meta">请先完成同步抢票。</p>
         </div>
@@ -906,10 +1115,10 @@ onMounted(loadEvents)
         <button
           type="button"
           class="primary-action"
-          :disabled="payLoading || !order || order.status === 'CANCELED'"
+          :disabled="payLoading || !order || order.status !== 'PENDING_PAYMENT' || remainingPaymentSeconds === 0"
           @click="payOrder"
         >
-          {{ payLoading ? '支付中' : '支付并出票' }}
+          {{ payLoading ? '支付中' : order ? `支付 ${formatMoney(order.amountCents)}` : '支付并出票' }}
         </button>
       </div>
 
@@ -920,30 +1129,117 @@ onMounted(loadEvents)
           <span>ticketCode</span>
           <strong>{{ ticket.ticketCode }}</strong>
           <span>票状态</span>
-          <strong>{{ ticket.status }}</strong>
+          <strong>{{ ticketStatusLabel(ticket.status) }}</strong>
           <span>orderId</span>
           <strong>{{ ticket.orderId }}</strong>
         </div>
       </div>
     </section>
 
-    <section v-if="activeView === 'tickets' || activeView === 'gate'" class="panel action-panel">
+    <section v-if="activeView === 'tickets'" class="panel action-panel">
       <div class="panel-header">
         <div>
-          <h2>{{ activeView === 'gate' ? '入场验票' : '查询电子票' }}</h2>
+          <h2>我的订单与电子票</h2>
+          <p class="event-meta">本机演示用户 #{{ userId }}，刷新页面后仍可找回。</p>
+        </div>
+        <button type="button" class="secondary-action" :disabled="myOrdersLoading" @click="loadMyOrders">
+          {{ myOrdersLoading ? '刷新中' : '刷新订单' }}
+        </button>
+      </div>
+
+      <p v-if="myOrdersError" class="error">{{ myOrdersError }}</p>
+      <div v-if="myOrdersLoading && myOrders.length === 0" class="order-skeleton" aria-label="正在加载订单">
+        <span></span><span></span><span></span>
+      </div>
+      <div v-else-if="myOrders.length === 0" class="empty order-empty">
+        <strong>还没有订单</strong>
+        <p>先去选择活动和票档，支付成功后电子票会自动出现在这里。</p>
+        <button type="button" class="primary-action" @click="activeView = 'booking'">去购票</button>
+      </div>
+      <div v-else class="order-list">
+        <article v-for="item in myOrders" :key="item.id" class="order-row" :class="item.status.toLowerCase()">
+          <div class="order-row-main">
+            <div class="order-heading">
+              <strong>{{ getOrderContext(item)?.event.name ?? `订单 #${item.id}` }}</strong>
+              <span class="order-status" :class="item.status.toLowerCase()">{{ orderStatusLabel(item.status) }}</span>
+            </div>
+            <p>
+              {{ formatDateTime(getOrderContext(item)?.session.startTime) }} ·
+              {{ getOrderContext(item)?.category.name ?? `票档 ${item.ticketCategoryId}` }} · 1 张
+            </p>
+            <small>订单 #{{ item.id }} · 下单于 {{ formatDateTime(item.createdTime) }}</small>
+          </div>
+          <strong class="order-amount">{{ formatMoney(item.amountCents) }}</strong>
+          <div class="order-actions">
+            <button
+              v-if="item.status === 'PENDING_PAYMENT'"
+              type="button"
+              class="primary-action"
+              @click="continuePayment(item)"
+            >
+              继续支付
+            </button>
+            <button
+              v-else-if="item.status === 'PAID'"
+              type="button"
+              class="secondary-action"
+              :disabled="ticketLookupLoading"
+              @click="viewOrderTicket(item)"
+            >
+              查看电子票
+            </button>
+            <button v-else type="button" class="secondary-action" @click="buyAgain(item)">
+              重新购买
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <div v-if="ticket && order" class="ticket-result verified-result ticket-pass">
+        <div>
+          <p class="box-title">{{ currentOrderContext?.event.name ?? '电子票' }}</p>
+          <strong>{{ currentOrderContext?.category.name ?? '入场凭证' }} · {{ ticketStatusLabel(ticket.status) }}</strong>
+          <p>{{ formatDateTime(currentOrderContext?.session.startTime) }} · {{ currentOrderContext?.event.location }}</p>
+        </div>
+        <div class="ticket-code-block">
+          <span>电子票码</span>
+          <strong>{{ ticket.ticketCode }}</strong>
+        </div>
+      </div>
+
+      <details class="manual-ticket-lookup">
+        <summary>使用电子票码查询</summary>
+        <div class="compact-lookup">
+          <label class="code-field">
+            <span>电子票码</span>
+            <input v-model.trim="ticketLookupCode" type="text" placeholder="ER-..." />
+          </label>
+          <button type="button" class="secondary-action" :disabled="ticketLookupLoading || !ticketLookupCode" @click="lookupTicket">
+            {{ ticketLookupLoading ? '查询中' : '查询' }}
+          </button>
+        </div>
+      </details>
+      <p v-if="ticketLookupError" class="error">{{ ticketLookupError }}</p>
+    </section>
+
+    <section v-if="activeView === 'gate'" class="panel action-panel">
+      <div class="panel-header">
+        <div>
+          <h2>入场验票</h2>
+          <p class="event-meta">输入或扫描电子票码，核验结果会立即返回。</p>
         </div>
       </div>
 
       <div class="verify-layout">
         <label class="code-field">
-          <span>ticketCode</span>
+          <span>电子票码</span>
           <input
             v-model.trim="ticketLookupCode"
             type="text"
-            placeholder="支付后会自动带出票码，也可以手动粘贴"
+            placeholder="ER-..."
           />
         </label>
-        <label v-if="activeView === 'gate'">
+        <label>
           <span>验票员 ID</span>
           <input v-model.number="verifierId" type="number" min="1" />
         </label>
@@ -956,7 +1252,6 @@ onMounted(loadEvents)
           {{ ticketLookupLoading ? '查询中' : '查询电子票' }}
         </button>
         <button
-          v-if="activeView === 'gate'"
           type="button"
           class="primary-action"
           :disabled="verifyLoading || !ticketLookupCode"
@@ -971,10 +1266,10 @@ onMounted(loadEvents)
       <div v-if="ticket" class="ticket-result verified-result">
         <p class="box-title">当前电子票</p>
         <div class="result-grid">
-          <span>ticketCode</span>
+          <span>电子票码</span>
           <strong>{{ ticket.ticketCode }}</strong>
           <span>票状态</span>
-          <strong>{{ ticket.status }}</strong>
+          <strong>{{ ticketStatusLabel(ticket.status) }}</strong>
           <span>orderId</span>
           <strong>{{ ticket.orderId }}</strong>
           <span>验票员</span>

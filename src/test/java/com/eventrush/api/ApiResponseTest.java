@@ -62,11 +62,11 @@ class ApiResponseTest {
     @Test
     void wrapsBusinessErrorResponse() throws Exception {
         mockMvc.perform(get("/api/events/999").header("X-Trace-Id", "trace-business"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(header().string("X-Trace-Id", "trace-business"))
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.code").value("BUSINESS_ERROR"))
-                .andExpect(jsonPath("$.message").value("event not found"))
+                .andExpect(jsonPath("$.code").value("EVENT_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("活动不存在"))
                 .andExpect(jsonPath("$.traceId").value("trace-business"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -115,6 +115,33 @@ class ApiResponseTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.orderId").value(order.id()))
                 .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()));
+    }
+
+    @Test
+    void userCanRecoverOrdersAndTicketFromOrderList() throws Exception {
+        TicketOrder order = ticketingService.grabTicket(9810L, 101L, 1001L);
+        ElectronicTicket ticket = ticketingService.payOrder(order.id());
+
+        mockMvc.perform(get("/api/users/9810/orders").header("X-Trace-Id", "trace-user-orders"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(order.id()))
+                .andExpect(jsonPath("$.data[0].amountCents").value(19900));
+
+        mockMvc.perform(get("/api/users/9810/orders/%s/ticket".formatted(order.id())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ticketCode").value(ticket.ticketCode()));
+
+        mockMvc.perform(get("/api/users/9811/orders/%s/ticket".formatted(order.id())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+
+        mockMvc.perform(get("/api/users/9810/tickets/%s".formatted(ticket.ticketCode())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.orderId").value(order.id()));
+
+        mockMvc.perform(get("/api/users/9811/tickets/%s".formatted(ticket.ticketCode())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
     }
 
     @Test

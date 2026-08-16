@@ -44,7 +44,13 @@ http://localhost:18086
 | HTTP 状态 | `code` | 场景 |
 | --- | --- | --- |
 | `400` | `VALIDATION_ERROR` | 请求体字段缺失或格式不合法 |
-| `400` | `BUSINESS_ERROR` | 库存不足、订单不存在、重复抢票、重复验票等业务错误 |
+| `404` | `EVENT_NOT_FOUND`、`ORDER_NOT_FOUND`、`TICKET_NOT_FOUND` | 对应资源不存在，或订单不属于当前用户 |
+| `409` | `DUPLICATE_GRAB` | 用户已有同一场次、同一票档的未取消订单 |
+| `409` | `TICKET_SOLD_OUT` | 当前票档库存不足 |
+| `409` | `ORDER_EXPIRED`、`ORDER_NOT_PAYABLE` | 订单已超时或当前状态不能支付 |
+| `409` | `TICKET_ALREADY_VERIFIED` | 电子票已经核验，不能重复入场 |
+| `429` | `GRAB_RATE_LIMITED` | 抢票请求过于频繁 |
+| `503` | `STOCK_SERVICE_UNAVAILABLE` | Redis 库存服务尚未就绪 |
 | `401` | `UNAUTHORIZED` | 管理端接口未携带或携带错误 `X-Admin-Key` |
 
 ## 核心对象
@@ -76,6 +82,7 @@ http://localhost:18086
 | `id` | 票档 ID |
 | `sessionId` | 所属场次 ID |
 | `name` | 票档名称 |
+| `priceCents` | 单价，单位为分 |
 | `totalStock` | 总库存 |
 | `remainingStock` | 剩余库存 |
 
@@ -88,6 +95,8 @@ http://localhost:18086
 | `eventId` | 活动 ID |
 | `sessionId` | 场次 ID |
 | `ticketCategoryId` | 票档 ID |
+| `unitPriceCents` | 下单时的票档单价快照，单位为分 |
+| `amountCents` | 订单应付金额，单位为分；当前每单固定 1 张 |
 | `status` | 订单状态：`PENDING_PAYMENT`、`PAID`、`CANCELED` |
 | `createdTime` | 创建时间 |
 | `payTime` | 支付时间 |
@@ -178,6 +187,40 @@ GET /api/orders/{orderId}
 
 返回 `TicketOrder`。可用于确认订单状态是否为待支付、已支付或已取消。
 
+### 查询用户订单列表
+
+```http
+GET /api/users/{userId}/orders
+```
+
+返回用户全部订单，按最新订单优先排列。前端“我的电子票”以这个接口作为恢复入口。
+
+### 查询用户订单详情
+
+```http
+GET /api/users/{userId}/orders/{orderId}
+```
+
+只有订单所属用户可以取得订单；不匹配时统一返回 `ORDER_NOT_FOUND`。
+
+### 支付用户订单
+
+```http
+POST /api/users/{userId}/orders/{orderId}/pay
+```
+
+支付前校验订单归属和支付截止时间。订单过期时返回 `ORDER_EXPIRED`，同时取消订单并释放库存和再次购买资格。
+
+### 按用户订单取得电子票
+
+```http
+GET /api/users/{userId}/orders/{orderId}/ticket
+```
+
+用于在刷新页面或重新进入订单中心后找回已出票凭证。
+
+> 当前 `userId` 归属校验用于本地产品演示，还不等同于登录认证。正式身份系统仍是后续阶段。
+
 ### 查询电子票
 
 ```http
@@ -185,6 +228,14 @@ GET /api/tickets/{ticketCode}
 ```
 
 返回 `ElectronicTicket`。用户可查看票码和票状态。
+
+产品前端使用带归属校验的接口：
+
+```http
+GET /api/users/{userId}/tickets/{ticketCode}
+```
+
+票码关联订单不属于该用户时返回 `ORDER_NOT_FOUND`。
 
 ### 核验电子票
 

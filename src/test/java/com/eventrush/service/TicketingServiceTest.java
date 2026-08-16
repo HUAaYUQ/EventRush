@@ -27,6 +27,8 @@ class TicketingServiceTest {
         ElectronicTicket verified = ticketingService.verifyTicket(ticket.ticketCode(), 99L);
 
         assertThat(order.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(order.unitPriceCents()).isEqualTo(19900);
+        assertThat(order.amountCents()).isEqualTo(19900);
         assertThat(ticket.status()).isEqualTo(TicketStatus.VALID);
         assertThat(verified.status()).isEqualTo(TicketStatus.VERIFIED);
         assertThat(verified.verifierId()).isEqualTo(99L);
@@ -44,7 +46,7 @@ class TicketingServiceTest {
 
         assertThatThrownBy(() -> ticketingService.verifyTicket(ticket.ticketCode(), 99L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("ticket has already been verified");
+                .hasMessage("这张电子票已经核验，不能重复入场");
     }
 
     @Test
@@ -71,7 +73,7 @@ class TicketingServiceTest {
 
         assertThatThrownBy(() -> ticketingService.grabTicket(1L, 101L, 1001L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("user has already grabbed this ticket");
+                .hasMessage("你已有这个票档的有效订单，请前往我的电子票继续处理");
     }
 
     @Test
@@ -86,7 +88,7 @@ class TicketingServiceTest {
 
         assertThatThrownBy(() -> ticketingService.grabTicket(11L, 101L, 1002L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("ticket stock is insufficient");
+                .hasMessage("当前票档库存不足，请刷新后重新选择");
     }
 
     @Test
@@ -110,7 +112,7 @@ class TicketingServiceTest {
                         ticketingService.grabTicket(currentUserId, 101L, 1002L);
                         successCount.incrementAndGet();
                     } catch (BusinessException exception) {
-                        if ("ticket stock is insufficient".equals(exception.getMessage())) {
+                        if ("TICKET_SOLD_OUT".equals(exception.code())) {
                             insufficientCount.incrementAndGet();
                         } else {
                             throw exception;

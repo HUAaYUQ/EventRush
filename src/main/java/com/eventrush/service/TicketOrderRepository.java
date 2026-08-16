@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -28,6 +29,7 @@ public class TicketOrderRepository {
             Long eventId,
             Long sessionId,
             Long ticketCategoryId,
+            long unitPriceCents,
             LocalDateTime createdTime,
             LocalDateTime expireTime
     ) {
@@ -36,20 +38,25 @@ public class TicketOrderRepository {
             jdbcTemplate.update(connection -> {
                 PreparedStatement statement = connection.prepareStatement("""
                         INSERT INTO ticket_order
-                            (user_id, event_id, session_id, ticket_category_id, order_status, created_time, expire_time)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                            (user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents,
+                             active_grab_key, order_status, created_time, expire_time)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, Statement.RETURN_GENERATED_KEYS);
                 statement.setLong(1, userId);
                 statement.setLong(2, eventId);
                 statement.setLong(3, sessionId);
                 statement.setLong(4, ticketCategoryId);
-                statement.setString(5, OrderStatus.PENDING_PAYMENT.name());
-                statement.setTimestamp(6, Timestamp.valueOf(createdTime));
-                statement.setTimestamp(7, Timestamp.valueOf(expireTime));
+                statement.setLong(5, unitPriceCents);
+                statement.setLong(6, unitPriceCents);
+                statement.setString(7, activeGrabKey(userId, sessionId, ticketCategoryId));
+                statement.setString(8, OrderStatus.PENDING_PAYMENT.name());
+                statement.setTimestamp(9, Timestamp.valueOf(createdTime));
+                statement.setTimestamp(10, Timestamp.valueOf(expireTime));
                 return statement;
             }, keyHolder);
         } catch (DuplicateKeyException exception) {
-            throw new BusinessException("user has already grabbed this ticket");
+            throw new BusinessException("DUPLICATE_GRAB", HttpStatus.CONFLICT,
+                    "你已有这个票档的有效订单，请前往我的电子票继续处理");
         }
         Number key = keyHolder.getKey();
         if (key == null) {
@@ -60,7 +67,7 @@ public class TicketOrderRepository {
 
     public Optional<TicketOrder> findById(Long orderId) {
         return jdbcTemplate.query("""
-                        SELECT id, user_id, event_id, session_id, ticket_category_id, order_status,
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE id = ?
@@ -71,6 +78,8 @@ public class TicketOrderRepository {
                         resultSet.getLong("event_id"),
                         resultSet.getLong("session_id"),
                         resultSet.getLong("ticket_category_id"),
+                        resultSet.getLong("unit_price_cents"),
+                        resultSet.getLong("amount_cents"),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -83,7 +92,7 @@ public class TicketOrderRepository {
 
     public List<TicketOrder> findExpiredPending(LocalDateTime now, int limit) {
         return jdbcTemplate.query("""
-                        SELECT id, user_id, event_id, session_id, ticket_category_id, order_status,
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE order_status = ?
@@ -97,6 +106,8 @@ public class TicketOrderRepository {
                         resultSet.getLong("event_id"),
                         resultSet.getLong("session_id"),
                         resultSet.getLong("ticket_category_id"),
+                        resultSet.getLong("unit_price_cents"),
+                        resultSet.getLong("amount_cents"),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -111,7 +122,7 @@ public class TicketOrderRepository {
 
     public List<TicketOrder> findByUserId(Long userId) {
         return jdbcTemplate.query("""
-                        SELECT id, user_id, event_id, session_id, ticket_category_id, order_status,
+                        SELECT id, user_id, event_id, session_id, ticket_category_id, unit_price_cents, amount_cents, order_status,
                                created_time, pay_time, cancel_time, expire_time
                         FROM ticket_order
                         WHERE user_id = ?
@@ -123,6 +134,8 @@ public class TicketOrderRepository {
                         resultSet.getLong("event_id"),
                         resultSet.getLong("session_id"),
                         resultSet.getLong("ticket_category_id"),
+                        resultSet.getLong("unit_price_cents"),
+                        resultSet.getLong("amount_cents"),
                         OrderStatus.valueOf(resultSet.getString("order_status")),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("pay_time", LocalDateTime.class),
@@ -163,7 +176,8 @@ public class TicketOrderRepository {
                 OrderStatus.PENDING_PAYMENT.name()
         );
         if (updated != 1) {
-            throw new BusinessException("only pending payment orders can be paid");
+            throw new BusinessException("ORDER_NOT_PAYABLE", HttpStatus.CONFLICT,
+                    "当前订单状态不能支付，请返回订单列表查看最新状态");
         }
         return findById(orderId).orElseThrow(() -> new BusinessException("order not found"));
     }
@@ -171,7 +185,7 @@ public class TicketOrderRepository {
     public boolean markCanceledIfPending(Long orderId, LocalDateTime cancelTime) {
         int updated = jdbcTemplate.update("""
                         UPDATE ticket_order
-                        SET order_status = ?, cancel_time = ?
+                        SET order_status = ?, cancel_time = ?, active_grab_key = NULL
                         WHERE id = ? AND order_status = ?
                         """,
                 OrderStatus.CANCELED.name(),
@@ -180,5 +194,9 @@ public class TicketOrderRepository {
                 OrderStatus.PENDING_PAYMENT.name()
         );
         return updated == 1;
+    }
+
+    private String activeGrabKey(Long userId, Long sessionId, Long ticketCategoryId) {
+        return "%d:%d:%d".formatted(userId, sessionId, ticketCategoryId);
     }
 }

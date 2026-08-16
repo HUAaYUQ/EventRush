@@ -39,8 +39,10 @@ class TicketingPersistenceTest {
 
         assertThat(ticketOrderRepository.findById(order.id()))
                 .get()
-                .extracting(TicketOrder::status)
-                .isEqualTo(OrderStatus.PENDING_PAYMENT);
+                .satisfies(persisted -> {
+                    assertThat(persisted.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+                    assertThat(persisted.amountCents()).isEqualTo(19900);
+                });
 
         ticketingService.payOrder(order.id());
 
@@ -56,7 +58,7 @@ class TicketingPersistenceTest {
 
         assertThatThrownBy(() -> ticketingService.grabTicket(301L, 101L, 1001L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("user has already grabbed this ticket");
+                .hasMessage("你已有这个票档的有效订单，请前往我的电子票继续处理");
     }
 
     @Test
@@ -80,7 +82,7 @@ class TicketingPersistenceTest {
 
         assertThatThrownBy(() -> ticketingService.verifyTicket(ticket.ticketCode(), 99L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("ticket has already been verified");
+                .hasMessage("这张电子票已经核验，不能重复入场");
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.eventrush.service.TicketingService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -51,9 +52,34 @@ class TicketingController {
         return ticketingService.getOrder(orderId);
     }
 
+    @GetMapping("/users/{userId}/orders")
+    List<TicketOrder> listUserOrders(@PathVariable Long userId) {
+        return ticketingService.listOrdersByUser(userId);
+    }
+
+    @GetMapping("/users/{userId}/orders/{orderId}")
+    TicketOrder getUserOrder(@PathVariable Long userId, @PathVariable Long orderId) {
+        return ticketingService.getOrderForUser(userId, orderId);
+    }
+
+    @PostMapping("/users/{userId}/orders/{orderId}/pay")
+    ElectronicTicket payUserOrder(@PathVariable Long userId, @PathVariable Long orderId) {
+        return ticketingService.payOrderForUser(userId, orderId);
+    }
+
+    @GetMapping("/users/{userId}/orders/{orderId}/ticket")
+    ElectronicTicket getUserOrderTicket(@PathVariable Long userId, @PathVariable Long orderId) {
+        return ticketingService.getTicketByOrderIdForUser(userId, orderId);
+    }
+
     @GetMapping("/tickets/{ticketCode}")
     ElectronicTicket getTicket(@PathVariable String ticketCode) {
         return ticketingService.getTicket(ticketCode);
+    }
+
+    @GetMapping("/users/{userId}/tickets/{ticketCode}")
+    ElectronicTicket getUserTicket(@PathVariable Long userId, @PathVariable String ticketCode) {
+        return ticketingService.getTicketForUser(userId, ticketCode);
     }
 
     @PostMapping("/tickets/verify")

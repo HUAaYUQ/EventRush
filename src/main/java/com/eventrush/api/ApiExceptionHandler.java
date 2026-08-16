@@ -15,8 +15,8 @@ class ApiExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("BUSINESS_ERROR", exception.getMessage()));
+                .status(exception.status())
+                .body(ApiResponse.error(exception.code(), exception.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

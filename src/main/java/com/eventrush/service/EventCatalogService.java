@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -18,8 +19,8 @@ public class EventCatalogService {
 
     @PostConstruct
     void seedData() {
-        TicketCategory standard = new TicketCategory(1001L, 101L, "Standard", 50, 50);
-        TicketCategory vip = new TicketCategory(1002L, 101L, "VIP", 10, 10);
+        TicketCategory standard = new TicketCategory(1001L, 101L, "标准票", 19900, 50, 50);
+        TicketCategory vip = new TicketCategory(1002L, 101L, "VIP 票", 39900, 10, 10);
         EventSession session = new EventSession(
                 101L,
                 1L,
@@ -27,7 +28,7 @@ public class EventCatalogService {
                 LocalDateTime.now().plusDays(7).plusHours(2),
                 List.of(standard, vip)
         );
-        events.put(1L, new Event(1L, "Campus Music Night", "Main Auditorium", "PUBLISHED", List.of(session)));
+        events.put(1L, new Event(1L, "校园音乐之夜", "大学生活动中心", "PUBLISHED", List.of(session)));
     }
 
     public List<Event> listEvents() {
@@ -37,7 +38,7 @@ public class EventCatalogService {
     public Event getEvent(Long eventId) {
         Event event = events.get(eventId);
         if (event == null) {
-            throw new BusinessException("event not found");
+            throw new BusinessException("EVENT_NOT_FOUND", HttpStatus.NOT_FOUND, "活动不存在");
         }
         return event;
     }
@@ -49,7 +50,7 @@ public class EventCatalogService {
                 .flatMap(session -> session.ticketCategories().stream())
                 .filter(category -> category.id().equals(ticketCategoryId))
                 .findFirst()
-                .orElseThrow(() -> new BusinessException("ticket category not found"));
+                .orElseThrow(() -> new BusinessException("TICKET_CATEGORY_NOT_FOUND", HttpStatus.NOT_FOUND, "票档不存在"));
     }
 
     public List<TicketCategory> listTicketCategories() {
@@ -87,7 +88,7 @@ public class EventCatalogService {
         return events.values().stream()
                 .filter(event -> event.sessions().stream().anyMatch(session -> session.id().equals(sessionId)))
                 .findFirst()
-                .orElseThrow(() -> new BusinessException("session not found"));
+                .orElseThrow(() -> new BusinessException("SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "场次不存在"));
     }
 
     private EventSession deductFromSession(EventSession session, Long ticketCategoryId) {
@@ -97,7 +98,7 @@ public class EventCatalogService {
                         return category;
                     }
                     if (category.remainingStock() <= 0) {
-                        throw new BusinessException("ticket stock is insufficient");
+                        throw new BusinessException("TICKET_SOLD_OUT", HttpStatus.CONFLICT, "当前票档库存不足，请刷新后重新选择");
                     }
                     return category.deductOne();
                 })

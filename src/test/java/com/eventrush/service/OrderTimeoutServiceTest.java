@@ -52,13 +52,17 @@ class OrderTimeoutServiceTest {
     }
 
     @Test
-    void doesNotCancelPaidOrder() {
+    void rejectsPaymentAfterExpiryAndReleasesPurchaseEligibility() {
         TicketOrder order = ticketingService.grabTicket(601L, 101L, 1001L);
-        ticketingService.payOrder(order.id());
 
-        int canceled = ticketingService.cancelExpiredOrders();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ticketingService.payOrder(order.id()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception -> assertThat(((BusinessException) exception).code()).isEqualTo("ORDER_EXPIRED"));
 
-        assertThat(canceled).isZero();
-        assertThat(ticketingService.getOrder(order.id()).status()).isEqualTo(OrderStatus.PAID);
+        assertThat(ticketingService.getOrder(order.id()).status()).isEqualTo(OrderStatus.CANCELED);
+        assertThat(eventCatalogService.getTicketCategory(101L, 1001L).remainingStock()).isEqualTo(50);
+        TicketOrder replacement = ticketingService.grabTicket(601L, 101L, 1001L);
+        assertThat(replacement.id()).isNotEqualTo(order.id());
+        assertThat(replacement.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
     }
 }

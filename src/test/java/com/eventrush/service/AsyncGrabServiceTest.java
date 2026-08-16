@@ -49,7 +49,7 @@ class AsyncGrabServiceTest {
         assertThat(results).filteredOn(result -> result.status().equals(AsyncGrabService.FAILED))
                 .singleElement()
                 .extracting(GrabResult::errorMessage)
-                .isEqualTo("ticket stock is insufficient");
+                .isEqualTo("当前票档库存不足，请刷新后重新选择");
     }
 
     @Test
