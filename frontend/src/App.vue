@@ -40,6 +40,10 @@ const waitlistResult = ref(null)
 const waitlistTraceId = ref('')
 const waitlistActionId = ref(null)
 const forcedWaitlistTicketKey = ref('')
+const searchQuery = ref('')
+const availabilityFilter = ref('all')
+const accountSegment = ref('all')
+const accountSelection = ref(null)
 const ticketLookupCode = ref('')
 const ticketLookupLoading = ref(false)
 const ticketLookupError = ref('')
@@ -149,6 +153,9 @@ const passengerProfilesValid = computed(
 )
 const orderPreviewAmount = computed(
   () => (selectedTicket.value?.category.priceCents ?? 0) * passengers.value.length,
+)
+const ticketPriceKnown = computed(
+  () => Number.isFinite(Number(selectedTicket.value?.category.priceCents)),
 )
 const selectedTicketNeedsWaitlist = computed(
   () => Boolean(selectedTicket.value)
@@ -296,12 +303,13 @@ const coldStartDayOne =
   '先选择一个有库存的票档，填写购票人并核对订单，再完成支付出票。'
 const copiedTraceId = ref('')
 const surface = computed(() => route.meta.surface ?? 'customer')
+const customerScreen = computed(() => route.meta.screen ?? 'discover')
 const activeView = computed({
   get: () => route.meta.view ?? 'booking',
   set: (view) => {
     const path = {
       booking: '/',
-      tickets: '/my',
+      tickets: '/account',
       gate: '/gate',
       evidence: '/lab',
       demo: '/demo',
@@ -314,15 +322,15 @@ const activeView = computed({
 
 const productTabs = computed(() => surface.value === 'customer'
   ? [
-      { key: 'booking', path: '/', label: '活动票预订', detail: '选票档、核对订单、支付' },
-      { key: 'tickets', path: '/my', label: '我的订单与票', detail: '候补、订单、电子票、退票' },
+      { key: 'booking', path: '/', label: '发现活动' },
+      { key: 'tickets', path: '/account', label: '我的票务' },
     ]
   : [])
 
 const surfaceHeader = computed(() => ({
   customer: {
     eyebrow: 'EventRush',
-    title: activeView.value === 'tickets' ? '我的订单与电子票' : '活动票务预订',
+    title: activeView.value === 'tickets' ? '我的票务' : '活动票务',
   },
   gate: { eyebrow: 'EventRush · 验票员', title: '入场验票工作台' },
   ops: { eyebrow: 'EventRush · 平台运营', title: '订单与票务排查' },
@@ -366,6 +374,63 @@ const demoEntries = [
 const customerRefreshLoading = computed(() => activeView.value === 'tickets'
   ? myOrdersLoading.value || myWaitlistsLoading.value
   : loading.value)
+
+const currentEvent = computed(() => {
+  const eventId = Number(route.params.eventId)
+  return events.value.find((event) => event.id === eventId) ?? events.value[0] ?? null
+})
+
+const visibleEvents = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  return events.value.filter((event) => {
+    const categories = (event.sessions ?? []).flatMap((session) => session.ticketCategories ?? [])
+    const available = categories.some((category) => category.remainingStock > 0)
+    const matchesAvailability = availabilityFilter.value === 'all'
+      || (availabilityFilter.value === 'available' && available)
+      || (availabilityFilter.value === 'waitlist' && !available && categories.length > 0)
+    const matchesQuery = !query
+      || `${event.name} ${event.location}`.toLowerCase().includes(query)
+    return matchesAvailability && matchesQuery
+  })
+})
+
+const checkoutStage = computed(() => {
+  if (waitlistResult.value && !order.value) return 'waitlist'
+  if (order.value?.status === 'PENDING_PAYMENT') return 'payment'
+  return 'passengers'
+})
+
+const accountSegments = computed(() => {
+  const items = [...myOrders.value, ...myWaitlists.value]
+  const count = (key) => items.filter((item) => accountItemSegment(item) === key).length
+  return [
+    { key: 'all', label: '全部', count: items.length },
+    { key: 'pending', label: '待支付', count: count('pending') },
+    { key: 'waitlist', label: '候补中', count: count('waitlist') },
+    { key: 'ticket', label: '待使用', count: count('ticket') },
+    { key: 'afterSale', label: '售后', count: count('afterSale') },
+    { key: 'completed', label: '已完成', count: count('completed') },
+  ]
+})
+
+const filteredAccountItems = computed(() => {
+  const orders = myOrders.value.map((item) => ({ type: 'order', item }))
+  const waitlists = myWaitlists.value.map((item) => ({ type: 'waitlist', item }))
+  return [...orders, ...waitlists]
+    .filter(({ item }) => accountSegment.value === 'all' || accountItemSegment(item) === accountSegment.value)
+    .sort((left, right) => new Date(right.item.createdTime ?? 0) - new Date(left.item.createdTime ?? 0))
+})
+
+const selectedAccountEntry = computed(() => {
+  const selected = accountSelection.value
+  if (selected) {
+    const match = filteredAccountItems.value.find(
+      (entry) => entry.type === selected.type && entry.item.id === selected.id,
+    )
+    if (match) return match
+  }
+  return filteredAccountItems.value[0] ?? null
+})
 
 async function refreshCustomerSurface() {
   if (activeView.value === 'tickets') {
@@ -558,6 +623,46 @@ function formatMoney(cents) {
   }).format(Number(cents ?? 0) / 100)
 }
 
+function formatTicketPrice(category) {
+  return Number.isFinite(Number(category?.priceCents))
+    ? formatMoney(category.priceCents)
+    : '票价待确认'
+}
+
+function eventNextSession(event) {
+  return [...(event?.sessions ?? [])]
+    .sort((left, right) => new Date(left.startTime) - new Date(right.startTime))[0] ?? null
+}
+
+function eventRemainingStock(event) {
+  return (event?.sessions ?? [])
+    .flatMap((session) => session.ticketCategories ?? [])
+    .reduce((total, category) => total + Number(category.remainingStock ?? 0), 0)
+}
+
+function eventStartingPrice(event) {
+  const prices = (event?.sessions ?? [])
+    .flatMap((session) => session.ticketCategories ?? [])
+    .map((category) => Number(category.priceCents))
+    .filter((price) => Number.isFinite(price))
+  return prices.length ? `${formatMoney(Math.min(...prices))} 起` : '票价待确认'
+}
+
+function accountItemSegment(item) {
+  const waitlist = item.waitingAhead !== undefined
+    || item.paymentExpireTime !== undefined
+    || ['WAITING', 'FULFILLED'].includes(item.status)
+  if (waitlist) {
+    if (item.status === 'WAITING') return 'waitlist'
+    if (item.status === 'FULFILLED') return 'pending'
+    return 'completed'
+  }
+  if (item.status === 'PENDING_PAYMENT') return 'pending'
+  if (['PAID', 'PARTIALLY_REFUNDED'].includes(item.status)) return 'ticket'
+  if (item.status === 'REFUNDED') return 'afterSale'
+  return 'completed'
+}
+
 function formatDateTime(value) {
   if (!value) {
     return '待确认'
@@ -730,6 +835,36 @@ function selectTicket(sessionId, ticketCategoryId) {
   waitlistTraceId.value = ''
 }
 
+function openEvent(event) {
+  router.push(`/events/${event.id}`)
+}
+
+function beginCheckout(option = selectedTicket.value) {
+  if (!option) return
+  resetRefundState()
+  order.value = null
+  ticket.value = null
+  issuedTickets.value = []
+  ticketLookupCode.value = ''
+  selectTicket(option.session.id, option.category.id)
+  router.push('/checkout')
+}
+
+async function openAccountEntry(entry) {
+  accountSelection.value = { type: entry.type, id: entry.item.id }
+  resetRefundState()
+  if (entry.type === 'waitlist') {
+    order.value = null
+    issuedTickets.value = []
+    return
+  }
+  order.value = entry.item
+  issuedTickets.value = []
+  if (['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(entry.item.status)) {
+    await viewOrderTickets(entry.item)
+  }
+}
+
 function selectFirstTicketIfNeeded() {
   if (selectedTicket.value || ticketOptions.value.length === 0) {
     return
@@ -825,7 +960,7 @@ function continuePayment(targetOrder) {
   ticket.value = null
   issuedTickets.value = []
   selectTicket(targetOrder.sessionId, targetOrder.ticketCategoryId)
-  activeView.value = 'booking'
+  router.push('/checkout')
 }
 
 function buyAgain(targetOrder) {
@@ -843,7 +978,7 @@ function buyAgain(targetOrder) {
     }))
   }
   selectTicket(targetOrder.sessionId, targetOrder.ticketCategoryId)
-  activeView.value = 'booking'
+  router.push('/checkout')
 }
 
 async function viewOrderTickets(targetOrder) {
@@ -939,7 +1074,7 @@ async function grabTicket() {
     }
     if (caught instanceof ApiRequestError && caught.code === 'DUPLICATE_GRAB') {
       await loadMyOrders()
-      activeView.value = 'tickets'
+      router.push('/account')
     }
   } finally {
     grabLoading.value = false
@@ -983,7 +1118,7 @@ async function joinWaitlist() {
     grabError.value = caught instanceof Error ? caught.message : '候补提交失败'
     if (caught instanceof ApiRequestError && caught.code === 'DUPLICATE_WAITLIST') {
       await loadMyWaitlists()
-      activeView.value = 'tickets'
+      router.push('/account')
     }
   } finally {
     grabLoading.value = false
@@ -1160,7 +1295,7 @@ async function payOrder() {
     ticketLookupCode.value = ticket.value?.ticketCode ?? ''
     await refreshOrder(order.value.id)
     await loadMyOrders()
-    activeView.value = 'tickets'
+    router.push('/account')
   } catch (caught) {
     payError.value = caught instanceof Error ? caught.message : '支付失败'
     if (caught instanceof ApiRequestError && caught.code === 'ORDER_EXPIRED') {
@@ -1367,7 +1502,36 @@ onUnmounted(() => {
 
 <template>
   <main class="shell" :data-surface="surface">
-    <section class="topbar">
+    <header v-if="surface === 'customer'" class="customer-header">
+      <RouterLink class="customer-brand" to="/" aria-label="EventRush 活动首页">
+        <img src="/favicon.svg" alt="" />
+        <strong>EventRush</strong>
+      </RouterLink>
+      <nav class="customer-nav" aria-label="购票平台导航">
+        <RouterLink
+          v-for="tab in productTabs"
+          :key="tab.key"
+          :to="tab.path"
+          :class="{
+            active: tab.key === 'tickets'
+              ? customerScreen === 'account'
+              : ['discover', 'event'].includes(customerScreen),
+          }"
+        >
+          {{ tab.label }}
+        </RouterLink>
+      </nav>
+      <label class="header-search" aria-label="搜索活动">
+        <span aria-hidden="true">⌕</span>
+        <input v-model="searchQuery" type="search" placeholder="搜索活动或地点" @keyup.enter="router.push('/')" />
+      </label>
+      <RouterLink class="account-entry" to="/account" :aria-current="activeView === 'tickets' ? 'page' : undefined">
+        <span>{{ String(userId).slice(-2) }}</span>
+        <b>我的</b>
+      </RouterLink>
+    </header>
+
+    <section v-else class="topbar">
       <div class="brand">
         <img src="/favicon.svg" alt="" class="brand-mark" />
         <div>
@@ -1375,33 +1539,8 @@ onUnmounted(() => {
           <h1>{{ surfaceHeader.title }}</h1>
         </div>
       </div>
-      <button
-        v-if="surface === 'customer'"
-        type="button"
-        class="reload-button"
-        :disabled="customerRefreshLoading"
-        @click="refreshCustomerSurface"
-      >
-        {{ customerRefreshLoading ? '加载中' : '重新加载' }}
-      </button>
-      <RouterLink v-else-if="surface !== 'demo'" class="entry-link" to="/demo">
-        返回身份入口
-      </RouterLink>
+      <RouterLink v-if="surface !== 'demo'" class="entry-link" to="/demo">返回身份入口</RouterLink>
     </section>
-
-    <nav v-if="productTabs.length" class="product-nav" aria-label="购票用户导航">
-      <button
-        v-for="tab in productTabs"
-        :key="tab.key"
-        type="button"
-        :class="{ active: activeView === tab.key }"
-        :aria-current="activeView === tab.key ? 'page' : undefined"
-        @click="router.push(tab.path)"
-      >
-        <strong>{{ tab.label }}</strong>
-        <span>{{ tab.detail }}</span>
-      </button>
-    </nav>
 
     <section v-if="surface === 'demo'" class="demo-entry" aria-labelledby="demo-entry-title">
       <div class="demo-entry-heading">
@@ -1448,30 +1587,51 @@ onUnmounted(() => {
       <p>压测记录服务于工程复盘和面试展示，不混入购票与运营流程。</p>
     </section>
 
-    <section v-if="activeView === 'booking'" class="customer-hero" aria-label="活动票预订首页">
-      <div>
-        <p class="eyebrow">购票流程</p>
-        <h2>选择票档，核对购票人后提交订单</h2>
-        <p>订单会保存票价和购票人脱敏快照，支付出票后可在“我的电子票”找回。</p>
+    <section v-if="customerScreen === 'discover'" class="discover-page" aria-labelledby="discover-title">
+      <div class="discover-heading">
+        <div>
+          <p class="customer-kicker">发现现场</p>
+          <h1 id="discover-title">下一场值得出发的活动</h1>
+          <p>按活动浏览，在详情页选择场次与票档。</p>
+        </div>
+        <RouterLink v-if="myOrders.some((item) => item.status === 'PENDING_PAYMENT')" class="pending-order-link" to="/account">
+          <span>你有待支付订单</span>
+          <strong>继续处理 →</strong>
+        </RouterLink>
       </div>
-      <aside class="booking-side">
-        <article class="booking-status">
-          <span>当前订单</span>
-          <strong>{{ order ? `#${order.id} · ${orderStatusLabel(order.status)}` : '尚未下单' }}</strong>
-          <p v-if="order?.status === 'PENDING_PAYMENT'">剩余支付时间 {{ orderCountdown }}</p>
-          <p v-else>{{ issuedTickets.length ? `${issuedTickets.length} 张电子票 · 一人一码` : '支付后逐人生成电子票' }}</p>
-        </article>
 
-        <article class="boundary-card">
-          <span>后续服务</span>
-          <div>
-            <strong>退票</strong>
-            <strong>通知</strong>
-            <strong>主办方入口</strong>
+      <div class="catalog-toolbar">
+        <div class="availability-tabs" role="group" aria-label="售票状态筛选">
+          <button type="button" :class="{ active: availabilityFilter === 'all' }" @click="availabilityFilter = 'all'">全部活动</button>
+          <button type="button" :class="{ active: availabilityFilter === 'available' }" @click="availabilityFilter = 'available'">正在售票</button>
+          <button type="button" :class="{ active: availabilityFilter === 'waitlist' }" @click="availabilityFilter = 'waitlist'">可候补</button>
+        </div>
+        <span>{{ visibleEvents.length }} 个结果</span>
+      </div>
+
+      <p v-if="loading" class="customer-feedback">正在加载活动…</p>
+      <p v-else-if="error" class="customer-feedback error">{{ error }}</p>
+      <div v-else-if="visibleEvents.length === 0" class="catalog-empty">
+        <strong>没有符合条件的活动</strong>
+        <p>换个关键词或售票状态再试。</p>
+      </div>
+      <div v-else class="event-catalog">
+        <article v-for="event in visibleEvents" :key="event.id" class="event-card" @click="openEvent(event)">
+          <button type="button" class="event-card-hit" :aria-label="`查看${event.name}`" @click.stop="openEvent(event)"></button>
+          <img src="/images/events/campus-music-night.jpg" :alt="`${event.name} 活动现场`" />
+          <div class="event-card-body">
+            <div class="event-card-status">
+              <span :class="{ waitlist: eventRemainingStock(event) === 0 }">
+                {{ eventRemainingStock(event) > 0 ? '售票中' : '可候补' }}
+              </span>
+              <b>{{ eventStartingPrice(event) }}</b>
+            </div>
+            <h2>{{ event.name }}</h2>
+            <p>{{ formatDateTime(eventNextSession(event)?.startTime) }}</p>
+            <p>{{ event.location }}</p>
           </div>
-          <p>这些入口会进入后续阶段，不挤占当前主流程。</p>
         </article>
-      </aside>
+      </div>
     </section>
 
     <section v-if="surface === 'lab'" class="hook-strip" aria-label="本轮状态">
@@ -1557,54 +1717,81 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'booking'" class="panel booking-panel">
-      <div class="panel-header">
-        <div>
-          <h2>选择活动和票档</h2>
-        </div>
-      </div>
-
-      <p v-if="loading" class="hint">正在通过 Vite 代理请求后端活动接口...</p>
-      <p v-else-if="error" class="error">{{ error }}。请确认后端服务运行在 18086 端口。</p>
-      <div v-else-if="events.length === 0" class="empty">暂无活动数据。</div>
-      <div v-else class="event-list">
-        <article v-for="event in events" :key="event.id" class="event-row">
-          <div class="event-main">
-            <p class="event-name">{{ event.name }}</p>
-            <p class="event-meta">{{ event.location }} · 当前可购</p>
-          </div>
-          <div class="session-list">
-            <div v-for="session in event.sessions" :key="session.id" class="session-row">
-              <div>
-                <p class="session-title">{{ formatDateTime(session.startTime) }} 开场</p>
-                <p class="event-meta">预计 {{ formatDateTime(session.endTime) }} 结束</p>
-              </div>
-              <div class="ticket-list">
-                <button
-                  v-for="category in session.ticketCategories"
-                  :key="category.id"
-                  type="button"
-                  class="ticket-chip"
-                  :class="{
-                    selected:
-                      selectedSessionId === session.id &&
-                      selectedTicketCategoryId === category.id,
-                    'sold-out': category.remainingStock === 0,
-                  }"
-                  @click="selectTicket(session.id, category.id)"
-                >
-                  <span>{{ category.name }}</span>
-                  <strong>{{ formatMoney(category.priceCents) }}</strong>
-                  <small>{{ category.remainingStock > 0 ? `余 ${category.remainingStock}` : '可候补' }}</small>
-                </button>
-              </div>
-            </div>
+    <section v-if="customerScreen === 'event'" class="event-detail-page">
+      <RouterLink class="back-link" to="/">← 返回活动列表</RouterLink>
+      <p v-if="loading" class="customer-feedback">正在加载活动…</p>
+      <p v-else-if="error" class="customer-feedback error">{{ error }}</p>
+      <div v-else-if="currentEvent" class="event-detail-layout">
+        <article class="event-story">
+          <img src="/images/events/campus-music-night.jpg" :alt="`${currentEvent.name} 活动现场`" />
+          <div class="event-story-copy">
+            <span class="sale-badge">{{ eventRemainingStock(currentEvent) > 0 ? '正在售票' : '开放候补' }}</span>
+            <h1>{{ currentEvent.name }}</h1>
+            <dl class="event-facts">
+              <div><dt>时间</dt><dd>{{ formatDateTime(eventNextSession(currentEvent)?.startTime) }}</dd></div>
+              <div><dt>地点</dt><dd>{{ currentEvent.location }}</dd></div>
+              <div><dt>入场</dt><dd>一人一票，电子票核验入场</dd></div>
+            </dl>
+            <section class="purchase-notes">
+              <h2>购票须知</h2>
+              <p>每笔订单最多添加 5 位购票人。支付完成后，每位购票人会获得独立电子票码。</p>
+            </section>
           </div>
         </article>
+
+        <aside class="ticket-picker" aria-label="选择场次和票档">
+          <div class="ticket-picker-heading">
+            <span>选择票档</span>
+            <strong>{{ eventStartingPrice(currentEvent) }}</strong>
+          </div>
+          <div v-for="session in currentEvent.sessions" :key="session.id" class="picker-session">
+            <div class="picker-session-time">
+              <strong>{{ formatDateTime(session.startTime) }}</strong>
+              <span>预计 {{ formatDateTime(session.endTime) }} 结束</span>
+            </div>
+            <button
+              v-for="category in session.ticketCategories"
+              :key="category.id"
+              type="button"
+              class="picker-ticket"
+              :class="{
+                selected: selectedSessionId === session.id && selectedTicketCategoryId === category.id,
+                waitlist: category.remainingStock === 0,
+              }"
+              @click="selectTicket(session.id, category.id)"
+            >
+              <span><strong>{{ category.name }}</strong><small>{{ category.remainingStock > 0 ? `剩余 ${category.remainingStock} 张` : '当前无票，可候补' }}</small></span>
+              <b>{{ formatTicketPrice(category) }}</b>
+            </button>
+          </div>
+          <div class="picker-summary">
+            <span>{{ selectedTicketNeedsWaitlist ? '将进入候补流程' : '已选票档' }}</span>
+            <strong>{{ selectedTicket?.category.name ?? '请选择票档' }}</strong>
+          </div>
+          <button type="button" class="customer-primary" :disabled="!selectedTicket" @click="beginCheckout()">
+            {{ selectedTicketNeedsWaitlist ? '填写购票人并候补' : '继续预订' }}
+          </button>
+        </aside>
+      </div>
+      <div v-else class="catalog-empty"><strong>活动不存在或已下架</strong><RouterLink to="/">返回活动列表</RouterLink></div>
+    </section>
+
+    <section v-if="customerScreen === 'checkout'" class="checkout-heading">
+      <RouterLink class="back-link" :to="selectedTicket ? `/events/${selectedTicket.event.id}` : '/'">← 返回活动详情</RouterLink>
+      <div class="checkout-title-row">
+        <div>
+          <p class="customer-kicker">安全结算</p>
+          <h1>{{ checkoutStage === 'payment' ? '完成支付' : checkoutStage === 'waitlist' ? '候补已提交' : '确认购票信息' }}</h1>
+        </div>
+        <ol class="checkout-steps" aria-label="购票进度">
+          <li class="done">选票档</li>
+          <li :class="{ done: checkoutStage !== 'passengers' }">核对购票人</li>
+          <li :class="{ done: checkoutStage === 'payment' }">支付</li>
+        </ol>
       </div>
     </section>
 
-    <section v-if="activeView === 'booking'" class="panel action-panel">
+    <section v-if="customerScreen === 'checkout' && checkoutStage === 'passengers'" class="panel action-panel checkout-panel">
       <div class="panel-header">
         <div>
           <h2>填写购票人与核对订单</h2>
@@ -1758,7 +1945,7 @@ onUnmounted(() => {
             </div>
             <div>
               <dt>单价</dt>
-              <dd>{{ formatMoney(selectedTicket?.category.priceCents) }}</dd>
+              <dd>{{ formatTicketPrice(selectedTicket?.category) }}</dd>
             </div>
           </dl>
 
@@ -1779,8 +1966,8 @@ onUnmounted(() => {
 
           <div class="receipt-total">
             <span>{{ selectedTicketNeedsWaitlist ? '兑现后应付' : '应付合计' }}</span>
-            <strong>{{ formatMoney(orderPreviewAmount) }}</strong>
-            <small>票价 {{ formatMoney(selectedTicket?.category.priceCents) }} × {{ passengers.length }} 张</small>
+            <strong>{{ ticketPriceKnown ? formatMoney(orderPreviewAmount) : '票价待确认' }}</strong>
+            <small>票价 {{ formatTicketPrice(selectedTicket?.category) }} × {{ passengers.length }} 张</small>
           </div>
 
           <div v-if="selectedTicketNeedsWaitlist" class="waitlist-notice" role="note">
@@ -1811,7 +1998,7 @@ onUnmounted(() => {
           </p>
           <small>本次候补 traceId：{{ waitlistTraceId || '未返回' }}</small>
         </div>
-        <button type="button" class="primary-action" @click="activeView = 'tickets'">查看我的候补</button>
+        <button type="button" class="primary-action" @click="router.push('/account')">查看我的候补</button>
       </div>
       <div v-if="order" class="order-result">
         <p class="box-title">订单已创建</p>
@@ -1830,7 +2017,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'booking'" class="panel action-panel">
+    <section v-if="customerScreen === 'checkout' && checkoutStage === 'payment'" class="panel action-panel checkout-panel payment-panel">
       <div class="panel-header">
         <div>
           <h2>支付并出票</h2>
@@ -1881,7 +2068,134 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="activeView === 'tickets'" class="panel action-panel">
+    <section v-if="customerScreen === 'checkout' && checkoutStage === 'waitlist'" class="waitlist-confirmation" role="status">
+      <span class="confirmation-mark">✓</span>
+      <p class="customer-kicker">已进入队列</p>
+      <h2>候补申请 #{{ waitlistResult.id }} 已提交</h2>
+      <p>{{ waitlistResult.quantity }} 位购票人整单排队，前方 {{ waitlistResult.waitingAhead }} 笔候补。</p>
+      <p>库存释放后会生成限时支付订单，候补成功不等于出票。</p>
+      <div class="confirmation-actions">
+        <RouterLink class="customer-primary" to="/account">查看候补进度</RouterLink>
+        <RouterLink class="customer-secondary" to="/">继续浏览活动</RouterLink>
+      </div>
+    </section>
+
+    <section v-if="customerScreen === 'account'" class="account-page" aria-labelledby="account-title">
+      <div class="account-heading">
+        <div>
+          <p class="customer-kicker">个人中心</p>
+          <h1 id="account-title">我的票务</h1>
+          <p>订单、候补和电子票按状态归档。</p>
+        </div>
+        <button type="button" class="customer-secondary" :disabled="customerRefreshLoading" @click="refreshMyTickets">
+          {{ customerRefreshLoading ? '刷新中…' : '刷新状态' }}
+        </button>
+      </div>
+
+      <nav class="account-segments" aria-label="票务状态">
+        <button
+          v-for="segment in accountSegments"
+          :key="segment.key"
+          type="button"
+          :class="{ active: accountSegment === segment.key }"
+          @click="accountSegment = segment.key; accountSelection = null"
+        >
+          {{ segment.label }} <span>{{ segment.count }}</span>
+        </button>
+      </nav>
+
+      <p v-if="myOrdersError || myWaitlistsError" class="customer-feedback error">{{ myOrdersError || myWaitlistsError }}</p>
+      <div v-if="customerRefreshLoading && filteredAccountItems.length === 0" class="customer-feedback">正在加载票务记录…</div>
+      <div v-else-if="filteredAccountItems.length === 0" class="account-empty">
+        <strong>当前分类没有记录</strong>
+        <p>去活动列表选择一场活动，订单和电子票会集中出现在这里。</p>
+        <RouterLink class="customer-primary" to="/">浏览活动</RouterLink>
+      </div>
+      <div v-else class="account-master-detail">
+        <div class="account-list" aria-label="票务记录列表">
+          <button
+            v-for="entry in filteredAccountItems"
+            :key="`${entry.type}-${entry.item.id}`"
+            type="button"
+            class="account-list-item"
+            :class="{ active: selectedAccountEntry?.type === entry.type && selectedAccountEntry?.item.id === entry.item.id }"
+            @click="openAccountEntry(entry)"
+          >
+            <span class="account-item-topline">
+              <b>{{ entry.type === 'waitlist' ? '候补' : '订单' }} #{{ entry.item.id }}</b>
+              <em>{{ entry.type === 'waitlist' ? waitlistStatusLabel(entry.item.status) : orderStatusLabel(entry.item.status) }}</em>
+            </span>
+            <strong>{{ getOrderContext(entry.item)?.event.name ?? '活动票务' }}</strong>
+            <span>{{ formatDateTime(getOrderContext(entry.item)?.session.startTime) }}</span>
+            <small>{{ getOrderContext(entry.item)?.category.name ?? `票档 ${entry.item.ticketCategoryId}` }} · {{ entry.item.quantity ?? 1 }} 张</small>
+          </button>
+        </div>
+
+        <article v-if="selectedAccountEntry" class="account-detail">
+          <div class="account-detail-heading">
+            <div>
+              <span>{{ selectedAccountEntry.type === 'waitlist' ? '候补申请' : '活动订单' }}</span>
+              <h2>{{ getOrderContext(selectedAccountEntry.item)?.event.name ?? `记录 #${selectedAccountEntry.item.id}` }}</h2>
+            </div>
+            <b>{{ selectedAccountEntry.type === 'waitlist'
+              ? waitlistStatusLabel(selectedAccountEntry.item.status)
+              : orderStatusLabel(selectedAccountEntry.item.status) }}</b>
+          </div>
+
+          <dl class="account-facts">
+            <div><dt>场次</dt><dd>{{ formatDateTime(getOrderContext(selectedAccountEntry.item)?.session.startTime) }}</dd></div>
+            <div><dt>票档</dt><dd>{{ getOrderContext(selectedAccountEntry.item)?.category.name ?? `票档 ${selectedAccountEntry.item.ticketCategoryId}` }}</dd></div>
+            <div><dt>数量</dt><dd>{{ selectedAccountEntry.item.quantity ?? 1 }} 张</dd></div>
+            <div><dt>购票人</dt><dd>{{ selectedAccountEntry.item.passengers?.map((passenger) => passenger.name).join('、') || '待同步' }}</dd></div>
+          </dl>
+
+          <template v-if="selectedAccountEntry.type === 'waitlist'">
+            <div class="account-callout">
+              <strong>{{ selectedAccountEntry.item.status === 'WAITING' ? `前方 ${selectedAccountEntry.item.waitingAhead} 笔候补` : '候补状态已更新' }}</strong>
+              <p>{{ selectedAccountEntry.item.status === 'FULFILLED' ? `请在 ${formatDateTime(selectedAccountEntry.item.paymentExpireTime)} 前完成支付。` : '库存释放后按提交顺序整单兑现。' }}</p>
+            </div>
+            <div class="account-actions">
+              <button v-if="selectedAccountEntry.item.status === 'WAITING'" type="button" class="customer-secondary danger" :disabled="waitlistActionId === selectedAccountEntry.item.id" @click="cancelWaitlist(selectedAccountEntry.item)">取消候补</button>
+              <button v-if="selectedAccountEntry.item.status === 'FULFILLED'" type="button" class="customer-primary" :disabled="waitlistActionId === selectedAccountEntry.item.id" @click="continueWaitlistPayment(selectedAccountEntry.item)">继续支付</button>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="account-price-row">
+              <span>订单金额</span>
+              <strong>{{ formatMoney(selectedAccountEntry.item.amountCents) }}</strong>
+            </div>
+            <div class="account-actions">
+              <button v-if="selectedAccountEntry.item.status === 'PENDING_PAYMENT'" type="button" class="customer-primary" @click="continuePayment(selectedAccountEntry.item)">继续支付</button>
+              <button v-else-if="['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(selectedAccountEntry.item.status)" type="button" class="customer-secondary" :disabled="ticketLookupLoading" @click="openAccountEntry(selectedAccountEntry)">{{ ticketLookupLoading ? '加载中…' : '查看电子票' }}</button>
+              <button v-else type="button" class="customer-secondary" @click="buyAgain(selectedAccountEntry.item)">再次购买</button>
+            </div>
+          </template>
+
+          <div v-if="order?.id === selectedAccountEntry.item.id && issuedTickets.length" class="account-ticket-list">
+            <article v-for="issued in issuedTickets" :key="issued.ticketCode" class="account-ticket" :class="issued.status.toLowerCase()">
+              <div>
+                <span>{{ issued.passengerName }}</span>
+                <strong>{{ ticketStatusLabel(issued.status) }}</strong>
+                <small>{{ passengerDocumentTypeLabel(issued.passengerDocumentType) }}尾号 {{ issued.passengerDocumentLast4 }}</small>
+              </div>
+              <code>{{ issued.ticketCode }}</code>
+              <label v-if="issued.status === 'VALID'" class="ticket-refund-choice">
+                <input v-model="refundSelection" type="checkbox" :value="issued.ticketCode" />
+                选择退票
+              </label>
+            </article>
+            <div v-if="refundableTickets.length" class="account-refund-bar">
+              <span>已选 {{ selectedRefundTickets.length }} 张 · 预计退款 {{ formatMoney(refundPreviewAmount) }}</span>
+              <button type="button" class="customer-secondary danger" :disabled="refundLoading || selectedRefundTickets.length === 0" @click="refundTickets">{{ refundLoading ? '处理中…' : '申请退票' }}</button>
+            </div>
+          </div>
+          <p v-if="ticketLookupError || refundError" class="customer-feedback error">{{ ticketLookupError || refundError }}</p>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="false" class="panel action-panel">
       <div class="panel-header">
         <div>
           <h2>我的订单与电子票</h2>
