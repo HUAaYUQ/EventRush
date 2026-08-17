@@ -43,6 +43,10 @@ public class TicketWaitlistService {
             throw new BusinessException("WAITLIST_CLOSED", HttpStatus.CONFLICT,
                     "场次已经开始，不能再提交候补");
         }
+        if (!eventCatalogService.isWaitlistEnabled(sessionId)) {
+            throw new BusinessException("WAITLIST_DISABLED", HttpStatus.CONFLICT,
+                    "该活动未开放候补，请关注后续放票通知");
+        }
         List<TicketPassenger> passengers = ticketingService.normalizePassengers(requestedPassengers);
         TicketCategory category = eventCatalogService.getTicketCategory(sessionId, ticketCategoryId);
         if (category.remainingStock() >= passengers.size()

@@ -32,6 +32,7 @@ public class HomepageContentRepository {
                                banner.published_time
                         FROM homepage_banner_publication banner
                         JOIN event_catalog event ON event.id = banner.event_id
+                        JOIN event_publication publication ON publication.event_id = banner.event_id
                         WHERE event.status = 'PUBLISHED'
                           AND banner.display_start_time <= ?
                           AND banner.display_end_time > ?
@@ -46,6 +47,14 @@ public class HomepageContentRepository {
                         WHERE event_id = ? AND organizer_id = ?
                         """,
                 (resultSet, rowNumber) -> map(resultSet), eventId, organizerId).stream().findFirst();
+    }
+
+    public List<HomepageBanner> listByOrganizer(Long organizerId) {
+        return jdbcTemplate.query("""
+                        SELECT * FROM homepage_banner
+                        WHERE organizer_id = ?
+                        ORDER BY display_order, updated_time DESC, id DESC
+                        """, (resultSet, rowNumber) -> map(resultSet), organizerId);
     }
 
     public HomepageBanner saveDraft(

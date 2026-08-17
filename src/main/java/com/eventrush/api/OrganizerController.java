@@ -1,6 +1,7 @@
 package com.eventrush.api;
 
 import com.eventrush.domain.EventSession;
+import com.eventrush.domain.EventProductDraft;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
 import com.eventrush.domain.OrganizerOrderSummary;
@@ -49,8 +50,7 @@ class OrganizerController {
 
     @PostMapping
     OrganizerEvent createDraft(@Valid @RequestBody EventRequest request) {
-        return organizerEventService.createDraft(
-                request.name(), request.location(), request.description(), request.posterUrl());
+        return organizerEventService.createDraft(request.toProduct());
     }
 
     @PutMapping("/{eventId}")
@@ -58,8 +58,7 @@ class OrganizerController {
             @PathVariable Long eventId,
             @Valid @RequestBody EventRequest request
     ) {
-        return organizerEventService.updateBasicInfo(eventId, request.name(), request.location(),
-                request.description(), request.posterUrl());
+        return organizerEventService.updateBasicInfo(eventId, request.toProduct());
     }
 
     @PostMapping("/{eventId}/sessions")
@@ -117,15 +116,39 @@ class OrganizerController {
             @NotBlank(message = "活动名称不能为空")
             @Size(max = 100, message = "活动名称不能超过 100 个字")
             String name,
-            @NotBlank(message = "活动地点不能为空")
-            @Size(max = 160, message = "活动地点不能超过 160 个字")
-            String location,
-            @NotNull(message = "活动介绍不能为空")
+            @NotNull(message = "活动类目不能为空") Long categoryId,
+            @NotBlank(message = "活动城市不能为空")
+            @Size(max = 80, message = "活动城市不能超过 80 个字") String city,
+            @NotBlank(message = "场馆名称不能为空")
+            @Size(max = 160, message = "场馆名称不能超过 160 个字") String venueName,
+            @NotBlank(message = "场馆地址不能为空")
+            @Size(max = 255, message = "场馆地址不能超过 255 个字") String venueAddress,
+            @NotBlank(message = "活动介绍不能为空")
             @Size(max = 1000, message = "活动介绍不能超过 1000 个字")
             String description,
             @Size(max = 255, message = "海报地址不能超过 255 个字")
-            String posterUrl
+            String posterUrl,
+            @NotNull(message = "演出时长不能为空")
+            @Min(value = 1, message = "演出时长至少为 1 分钟")
+            @Max(value = 1440, message = "演出时长不能超过 1440 分钟") Integer durationMinutes,
+            @NotNull(message = "开售时间不能为空") LocalDateTime saleStartTime,
+            @NotNull(message = "停售时间不能为空") LocalDateTime saleEndTime,
+            @NotNull(message = "限购数量不能为空")
+            @Min(value = 1, message = "每单至少可购买 1 张")
+            @Max(value = 20, message = "每单限购不能超过 20 张") Integer purchaseLimit,
+            @NotBlank(message = "实名规则不能为空")
+            @Size(max = 32, message = "实名规则格式错误") String realNameRule,
+            @NotBlank(message = "入场方式不能为空")
+            @Size(max = 32, message = "入场方式格式错误") String entryMethod,
+            @NotBlank(message = "退票规则不能为空")
+            @Size(max = 1000, message = "退票规则不能超过 1000 个字") String refundRule,
+            boolean waitlistEnabled
     ) {
+        EventProductDraft toProduct() {
+            return new EventProductDraft(name, categoryId, city, venueName, venueAddress,
+                    description, posterUrl, durationMinutes, saleStartTime, saleEndTime,
+                    purchaseLimit, realNameRule, entryMethod, refundRule, waitlistEnabled);
+        }
     }
 
     record SessionRequest(

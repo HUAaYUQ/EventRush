@@ -1,6 +1,7 @@
 package com.eventrush.service;
 
 import com.eventrush.domain.Event;
+import com.eventrush.domain.EventProductDraft;
 import com.eventrush.domain.EventSession;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
@@ -25,16 +26,22 @@ public class EventCatalogRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final boolean inMemoryDatabase;
+    private final boolean seedEnabled;
 
     public EventCatalogRepository(
             JdbcTemplate jdbcTemplate,
-            @Value("${spring.datasource.url:}") String datasourceUrl
+            @Value("${spring.datasource.url:}") String datasourceUrl,
+            @Value("${eventrush.catalog.seed-enabled:false}") boolean seedEnabled
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.inMemoryDatabase = datasourceUrl.startsWith("jdbc:h2:mem:");
+        this.seedEnabled = seedEnabled;
     }
 
     public void seedDefaultIfEmpty() {
+        if (!seedEnabled) {
+            return;
+        }
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM event_catalog", Integer.class);
         if (count != null && count > 0) {
             if (inMemoryDatabase) {
@@ -50,12 +57,15 @@ public class EventCatalogRepository {
         LocalDateTime startTime = now.plusDays(7);
         jdbcTemplate.update("""
                 INSERT INTO event_catalog
-                    (id, organizer_id, name, location, description, poster_url, status,
-                     created_time, updated_time, published_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, 1L, 9001L, "校园音乐之夜", "大学生活动中心",
-                "在校园中央舞台听见乐队、民谣与夏夜。",
-                "/images/events/campus-music-night.jpg", "PUBLISHED",
+                    (id, organizer_id, name, location, category_id, city, venue_address,
+                     description, poster_url, duration_minutes, sale_start_time, sale_end_time,
+                     purchase_limit, real_name_rule, entry_method, refund_rule, waitlist_enabled,
+                     status, created_time, updated_time, published_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, 1L, 9001L, "测试演出项目", "测试场馆", 1L, "测试城市", "测试地址",
+                "自动化测试使用的票务项目。", "", 120,
+                Timestamp.valueOf(now.minusHours(1)), Timestamp.valueOf(now.plusDays(30)),
+                5, "REQUIRED", "E_TICKET", "测试退票规则", true, "PUBLISHED",
                 Timestamp.valueOf(now), Timestamp.valueOf(now), Timestamp.valueOf(now));
         jdbcTemplate.update("""
                 INSERT INTO event_session_catalog (id, event_id, start_time, end_time)
@@ -71,35 +81,75 @@ public class EventCatalogRepository {
                     (id, session_id, name, price_cents, total_stock, remaining_stock)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """, 1002L, 101L, "VIP 票", 39900L, 10, 10);
+        jdbcTemplate.update("""
+                INSERT INTO event_session_publication (event_id, session_id, start_time, end_time)
+                VALUES (?, ?, ?, ?)
+                """, 1L, 101L, Timestamp.valueOf(startTime), Timestamp.valueOf(startTime.plusHours(2)));
+        jdbcTemplate.update("""
+                INSERT INTO ticket_category_publication
+                    (event_id, session_id, ticket_category_id, name, price_cents)
+                VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+                """, 1L, 101L, 1001L, "标准票", 19900L,
+                1L, 101L, 1002L, "VIP 票", 39900L);
+        jdbcTemplate.update("""
+                INSERT INTO event_publication
+                    (event_id, organizer_id, category_id, category_name, name, city,
+                     venue_name, venue_address, description, poster_url, duration_minutes,
+                     sale_start_time, sale_end_time, purchase_limit, real_name_rule,
+                     entry_method, refund_rule, waitlist_enabled, published_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, 1L, 9001L, 1L, "演唱会", "测试演出项目", "测试城市",
+                "测试场馆", "测试地址", "自动化测试使用的票务项目。", "", 120,
+                Timestamp.valueOf(now.minusHours(1)), Timestamp.valueOf(now.plusDays(30)),
+                5, "REQUIRED", "E_TICKET", "测试退票规则", true, Timestamp.valueOf(now));
     }
 
     public List<Event> listPublishedEvents() {
         return jdbcTemplate.query("""
-                        SELECT id FROM event_catalog
-                        WHERE status = 'PUBLISHED'
-                        ORDER BY published_time DESC, id DESC
+                        SELECT publication.event_id
+                        FROM event_publication publication
+                        JOIN event_catalog event ON event.id = publication.event_id
+                        WHERE event.status = 'PUBLISHED'
+                        ORDER BY publication.published_time DESC, publication.event_id DESC
                         """,
-                (resultSet, rowNumber) -> findPublicEvent(resultSet.getLong("id"))
+                (resultSet, rowNumber) -> findPublicEvent(resultSet.getLong("event_id"))
                         .orElseThrow(() -> new BusinessException("event loading failed"))
         );
     }
 
     public Optional<Event> findPublicEvent(Long eventId) {
         return jdbcTemplate.query("""
-                        SELECT id, name, location, status, description, poster_url
-                        FROM event_catalog
-                        WHERE id = ? AND status = 'PUBLISHED'
+                        SELECT publication.*, event.status
+                        FROM event_publication publication
+                        JOIN event_catalog event ON event.id = publication.event_id
+                        WHERE publication.event_id = ? AND event.status = 'PUBLISHED'
                         """,
-                (resultSet, rowNumber) -> new Event(
-                        resultSet.getLong("id"),
+                (resultSet, rowNumber) -> {
+                    List<EventSession> sessions = findPublishedSessions(eventId);
+                    return new Event(
+                        resultSet.getLong("event_id"),
                         resultSet.getString("name"),
-                        resultSet.getString("location"),
+                        resultSet.getString("venue_name"),
+                        resultSet.getLong("category_id"),
+                        resultSet.getString("category_name"),
+                        resultSet.getString("city"),
+                        resultSet.getString("venue_address"),
                         resultSet.getString("status"),
-                        findSessions(resultSet.getLong("id")),
+                        resolveSaleStatus(resultSet.getObject("sale_start_time", LocalDateTime.class),
+                                resultSet.getObject("sale_end_time", LocalDateTime.class), sessions),
+                        resultSet.getObject("sale_start_time", LocalDateTime.class),
+                        resultSet.getObject("sale_end_time", LocalDateTime.class),
+                        resultSet.getInt("duration_minutes"),
+                        resultSet.getInt("purchase_limit"),
+                        resultSet.getString("real_name_rule"),
+                        resultSet.getString("entry_method"),
+                        resultSet.getString("refund_rule"),
+                        resultSet.getBoolean("waitlist_enabled"),
+                        sessions,
                         resultSet.getString("description"),
                         resultSet.getString("poster_url"),
-                        findNotices(resultSet.getLong("id"))
-                ), eventId).stream().findFirst();
+                        findNotices(eventId));
+                }, eventId).stream().findFirst();
     }
 
     public List<OrganizerEvent> listOrganizerEvents(Long organizerId) {
@@ -159,19 +209,36 @@ public class EventCatalogRepository {
 
     public Optional<OrganizerEvent> findOrganizerEvent(Long eventId, Long organizerId) {
         return jdbcTemplate.query("""
-                        SELECT id, organizer_id, name, location, description, poster_url, status,
-                               created_time, updated_time, published_time
-                        FROM event_catalog
-                        WHERE id = ? AND organizer_id = ?
+                        SELECT event.*, category.name AS category_name,
+                               publication.published_time AS public_version_time
+                        FROM event_catalog event
+                        LEFT JOIN event_category category ON category.id = event.category_id
+                        LEFT JOIN event_publication publication ON publication.event_id = event.id
+                        WHERE event.id = ? AND event.organizer_id = ?
                         """,
                 (resultSet, rowNumber) -> new OrganizerEvent(
                         resultSet.getLong("id"),
                         resultSet.getLong("organizer_id"),
                         resultSet.getString("name"),
                         resultSet.getString("location"),
+                        resultSet.getObject("category_id", Long.class),
+                        resultSet.getString("category_name"),
+                        resultSet.getString("city"),
+                        resultSet.getString("venue_address"),
                         resultSet.getString("description"),
                         resultSet.getString("poster_url"),
+                        resultSet.getInt("duration_minutes"),
+                        resultSet.getObject("sale_start_time", LocalDateTime.class),
+                        resultSet.getObject("sale_end_time", LocalDateTime.class),
+                        resultSet.getInt("purchase_limit"),
+                        resultSet.getString("real_name_rule"),
+                        resultSet.getString("entry_method"),
+                        resultSet.getString("refund_rule"),
+                        resultSet.getBoolean("waitlist_enabled"),
                         resultSet.getString("status"),
+                        resultSet.getObject("public_version_time", LocalDateTime.class) == null
+                                || resultSet.getObject("updated_time", LocalDateTime.class)
+                                .isAfter(resultSet.getObject("public_version_time", LocalDateTime.class)),
                         resultSet.getObject("created_time", LocalDateTime.class),
                         resultSet.getObject("updated_time", LocalDateTime.class),
                         resultSet.getObject("published_time", LocalDateTime.class),
@@ -182,27 +249,23 @@ public class EventCatalogRepository {
 
     public OrganizerEvent createDraft(
             Long organizerId,
-            String name,
-            String location,
-            String description,
-            String posterUrl,
+            EventProductDraft product,
             LocalDateTime now
     ) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
                     INSERT INTO event_catalog
-                        (organizer_id, name, location, description, poster_url, status,
-                         created_time, updated_time, published_time)
-                    VALUES (?, ?, ?, ?, ?, 'DRAFT', ?, ?, NULL)
+                        (organizer_id, name, location, category_id, city, venue_address,
+                         description, poster_url, duration_minutes, sale_start_time, sale_end_time,
+                         purchase_limit, real_name_rule, entry_method, refund_rule, waitlist_enabled,
+                         status, created_time, updated_time, published_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, NULL)
                     """, Statement.RETURN_GENERATED_KEYS);
             statement.setLong(1, organizerId);
-            statement.setString(2, name);
-            statement.setString(3, location);
-            statement.setString(4, description);
-            statement.setString(5, posterUrl);
-            statement.setTimestamp(6, Timestamp.valueOf(now));
-            statement.setTimestamp(7, Timestamp.valueOf(now));
+            setProduct(statement, product, 2);
+            statement.setTimestamp(17, Timestamp.valueOf(now));
+            statement.setTimestamp(18, Timestamp.valueOf(now));
             return statement;
         }, keyHolder);
         return findOrganizerEvent(requireKey(keyHolder, "activity"), organizerId)
@@ -212,18 +275,24 @@ public class EventCatalogRepository {
     public void updateBasicInfo(
             Long eventId,
             Long organizerId,
-            String name,
-            String location,
-            String description,
-            String posterUrl,
+            EventProductDraft product,
             LocalDateTime now
     ) {
         int updated = jdbcTemplate.update("""
                         UPDATE event_catalog
-                        SET name = ?, location = ?, description = ?, poster_url = ?, updated_time = ?
+                        SET name = ?, location = ?, category_id = ?, city = ?, venue_address = ?,
+                            description = ?, poster_url = ?, duration_minutes = ?,
+                            sale_start_time = ?, sale_end_time = ?, purchase_limit = ?,
+                            real_name_rule = ?, entry_method = ?, refund_rule = ?,
+                            waitlist_enabled = ?, updated_time = ?
                         WHERE id = ? AND organizer_id = ?
                         """,
-                name, location, description, posterUrl, Timestamp.valueOf(now), eventId, organizerId);
+                product.name(), product.venueName(), product.categoryId(), product.city(),
+                product.venueAddress(), product.description(), product.posterUrl(),
+                product.durationMinutes(), Timestamp.valueOf(product.saleStartTime()),
+                Timestamp.valueOf(product.saleEndTime()), product.purchaseLimit(),
+                product.realNameRule(), product.entryMethod(), product.refundRule(),
+                product.waitlistEnabled(), Timestamp.valueOf(now), eventId, organizerId);
         requireOwnedUpdate(updated);
     }
 
@@ -330,7 +399,7 @@ public class EventCatalogRepository {
     }
 
     public void publishEvent(Long eventId, Long organizerId, LocalDateTime now) {
-        requireOwnedEvent(eventId, organizerId);
+        OrganizerEvent event = requireOwnedEvent(eventId, organizerId);
         Integer sessionCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM event_session_catalog WHERE event_id = ?", Integer.class, eventId);
         Integer ticketCount = jdbcTemplate.queryForObject("""
@@ -346,12 +415,61 @@ public class EventCatalogRepository {
             throw new BusinessException("TICKET_CATEGORY_REQUIRED", HttpStatus.CONFLICT,
                     "发布前至少配置一个票档");
         }
+        Integer publicationCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM event_publication WHERE event_id = ?", Integer.class, eventId);
+        Object[] values = publicationValues(event, now);
+        if (publicationCount != null && publicationCount > 0) {
+            jdbcTemplate.update("""
+                    UPDATE event_publication
+                    SET organizer_id = ?, category_id = ?, category_name = ?, name = ?, city = ?,
+                        venue_name = ?, venue_address = ?, description = ?, poster_url = ?,
+                        duration_minutes = ?, sale_start_time = ?, sale_end_time = ?, purchase_limit = ?,
+                        real_name_rule = ?, entry_method = ?, refund_rule = ?, waitlist_enabled = ?,
+                        published_time = ?
+                    WHERE event_id = ?
+                    """, append(values, eventId));
+        } else {
+            jdbcTemplate.update("""
+                    INSERT INTO event_publication
+                        (organizer_id, category_id, category_name, name, city, venue_name,
+                         venue_address, description, poster_url, duration_minutes, sale_start_time,
+                         sale_end_time, purchase_limit, real_name_rule, entry_method, refund_rule,
+                         waitlist_enabled, published_time, event_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, append(values, eventId));
+        }
+        jdbcTemplate.update("DELETE FROM ticket_category_publication WHERE event_id = ?", eventId);
+        jdbcTemplate.update("DELETE FROM event_session_publication WHERE event_id = ?", eventId);
+        jdbcTemplate.update("""
+                INSERT INTO event_session_publication (event_id, session_id, start_time, end_time)
+                SELECT event_id, id, start_time, end_time
+                FROM event_session_catalog
+                WHERE event_id = ?
+                """, eventId);
+        jdbcTemplate.update("""
+                INSERT INTO ticket_category_publication
+                    (event_id, session_id, ticket_category_id, name, price_cents)
+                SELECT session.event_id, ticket.session_id, ticket.id, ticket.name, ticket.price_cents
+                FROM ticket_category_catalog ticket
+                JOIN event_session_catalog session ON session.id = ticket.session_id
+                WHERE session.event_id = ?
+                """, eventId);
         jdbcTemplate.update("""
                         UPDATE event_catalog
                         SET status = 'PUBLISHED', updated_time = ?, published_time = COALESCE(published_time, ?)
                         WHERE id = ? AND organizer_id = ?
                         """,
                 Timestamp.valueOf(now), Timestamp.valueOf(now), eventId, organizerId);
+    }
+
+    public boolean isWaitlistEnabledForSession(Long sessionId) {
+        Boolean enabled = jdbcTemplate.queryForObject("""
+                SELECT publication.waitlist_enabled
+                FROM event_session_publication session
+                JOIN event_publication publication ON publication.event_id = session.event_id
+                WHERE session.session_id = ?
+                """, Boolean.class, sessionId);
+        return Boolean.TRUE.equals(enabled);
     }
 
     public OrganizerNotice addNotice(
@@ -397,6 +515,24 @@ public class EventCatalogRepository {
                 ), ticketCategoryId, sessionId).stream().findFirst();
     }
 
+    public Optional<TicketCategory> findPublishedTicketCategory(Long sessionId, Long ticketCategoryId) {
+        return jdbcTemplate.query("""
+                        SELECT snapshot.ticket_category_id AS id, snapshot.session_id,
+                               snapshot.name, snapshot.price_cents,
+                               live.total_stock, live.remaining_stock
+                        FROM ticket_category_publication snapshot
+                        JOIN ticket_category_catalog live
+                          ON live.id = snapshot.ticket_category_id
+                         AND live.session_id = snapshot.session_id
+                        WHERE snapshot.ticket_category_id = ? AND snapshot.session_id = ?
+                        """,
+                (resultSet, rowNumber) -> new TicketCategory(
+                        resultSet.getLong("id"), resultSet.getLong("session_id"),
+                        resultSet.getString("name"), resultSet.getLong("price_cents"),
+                        resultSet.getInt("total_stock"), resultSet.getInt("remaining_stock")
+                ), ticketCategoryId, sessionId).stream().findFirst();
+    }
+
     public List<TicketCategory> listTicketCategories() {
         return jdbcTemplate.query("""
                         SELECT id, session_id, name, price_cents, total_stock, remaining_stock
@@ -412,7 +548,7 @@ public class EventCatalogRepository {
 
     public Event findEventBySessionId(Long sessionId) {
         return jdbcTemplate.query("""
-                        SELECT event_id FROM event_session_catalog WHERE id = ?
+                        SELECT event_id FROM event_session_publication WHERE session_id = ?
                         """,
                 (resultSet, rowNumber) -> findPublicEvent(resultSet.getLong("event_id"))
                         .orElseThrow(() -> new BusinessException(
@@ -467,6 +603,41 @@ public class EventCatalogRepository {
                         resultSet.getObject("end_time", LocalDateTime.class),
                         findCategories(resultSet.getLong("id"))
                 ), eventId);
+    }
+
+    private List<EventSession> findPublishedSessions(Long eventId) {
+        return jdbcTemplate.query("""
+                        SELECT event_id, session_id, start_time, end_time
+                        FROM event_session_publication
+                        WHERE event_id = ?
+                        ORDER BY start_time, session_id
+                        """,
+                (resultSet, rowNumber) -> new EventSession(
+                        resultSet.getLong("session_id"),
+                        resultSet.getLong("event_id"),
+                        resultSet.getObject("start_time", LocalDateTime.class),
+                        resultSet.getObject("end_time", LocalDateTime.class),
+                        findPublishedCategories(resultSet.getLong("session_id"))
+                ), eventId);
+    }
+
+    private List<TicketCategory> findPublishedCategories(Long sessionId) {
+        return jdbcTemplate.query("""
+                        SELECT snapshot.ticket_category_id AS id, snapshot.session_id,
+                               snapshot.name, snapshot.price_cents,
+                               live.total_stock, live.remaining_stock
+                        FROM ticket_category_publication snapshot
+                        JOIN ticket_category_catalog live
+                          ON live.id = snapshot.ticket_category_id
+                         AND live.session_id = snapshot.session_id
+                        WHERE snapshot.session_id = ?
+                        ORDER BY snapshot.price_cents, snapshot.ticket_category_id
+                        """,
+                (resultSet, rowNumber) -> new TicketCategory(
+                        resultSet.getLong("id"), resultSet.getLong("session_id"),
+                        resultSet.getString("name"), resultSet.getLong("price_cents"),
+                        resultSet.getInt("total_stock"), resultSet.getInt("remaining_stock")
+                ), sessionId);
     }
 
     private List<TicketCategory> findCategories(Long sessionId) {
@@ -525,6 +696,60 @@ public class EventCatalogRepository {
     private void touchEvent(Long eventId, LocalDateTime now) {
         jdbcTemplate.update("UPDATE event_catalog SET updated_time = ? WHERE id = ?",
                 Timestamp.valueOf(now), eventId);
+    }
+
+    private void setProduct(PreparedStatement statement, EventProductDraft product, int start)
+            throws java.sql.SQLException {
+        statement.setString(start, product.name());
+        statement.setString(start + 1, product.venueName());
+        statement.setLong(start + 2, product.categoryId());
+        statement.setString(start + 3, product.city());
+        statement.setString(start + 4, product.venueAddress());
+        statement.setString(start + 5, product.description());
+        statement.setString(start + 6, product.posterUrl());
+        statement.setInt(start + 7, product.durationMinutes());
+        statement.setTimestamp(start + 8, Timestamp.valueOf(product.saleStartTime()));
+        statement.setTimestamp(start + 9, Timestamp.valueOf(product.saleEndTime()));
+        statement.setInt(start + 10, product.purchaseLimit());
+        statement.setString(start + 11, product.realNameRule());
+        statement.setString(start + 12, product.entryMethod());
+        statement.setString(start + 13, product.refundRule());
+        statement.setBoolean(start + 14, product.waitlistEnabled());
+    }
+
+    private Object[] publicationValues(OrganizerEvent event, LocalDateTime publishedTime) {
+        return new Object[]{
+                event.organizerId(), event.categoryId(), event.categoryName(), event.name(), event.city(),
+                event.location(), event.venueAddress(), event.description(), event.posterUrl(),
+                event.durationMinutes(), Timestamp.valueOf(event.saleStartTime()),
+                Timestamp.valueOf(event.saleEndTime()), event.purchaseLimit(), event.realNameRule(),
+                event.entryMethod(), event.refundRule(), event.waitlistEnabled(),
+                Timestamp.valueOf(publishedTime)
+        };
+    }
+
+    private Object[] append(Object[] values, Object tail) {
+        Object[] result = java.util.Arrays.copyOf(values, values.length + 1);
+        result[result.length - 1] = tail;
+        return result;
+    }
+
+    private String resolveSaleStatus(
+            LocalDateTime saleStartTime,
+            LocalDateTime saleEndTime,
+            List<EventSession> sessions
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(saleStartTime)) {
+            return "UPCOMING";
+        }
+        if (!now.isBefore(saleEndTime)) {
+            return "ENDED";
+        }
+        boolean available = sessions.stream()
+                .flatMap(session -> session.ticketCategories().stream())
+                .anyMatch(category -> category.remainingStock() > 0);
+        return available ? "ON_SALE" : "SOLD_OUT";
     }
 
     private Long requireKey(KeyHolder keyHolder, String resource) {

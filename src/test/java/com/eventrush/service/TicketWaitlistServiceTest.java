@@ -30,6 +30,7 @@ class TicketWaitlistServiceTest {
         when(repository.findById(1L)).thenReturn(Optional.of(waiting), Optional.of(expired));
         when(catalogService.getSession(101L)).thenReturn(new EventSession(
                 101L, 1L, now.minusMinutes(1), now.plusHours(1), List.of()));
+        when(catalogService.isWaitlistEnabled(101L)).thenReturn(true);
         when(repository.markExpiredIfWaiting(org.mockito.ArgumentMatchers.eq(1L),
                 org.mockito.ArgumentMatchers.any(LocalDateTime.class))).thenReturn(true);
 

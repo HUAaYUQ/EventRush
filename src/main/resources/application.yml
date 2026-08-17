@@ -16,6 +16,8 @@ rocketmq:
     group: eventrush-grab-producer
 
 eventrush:
+  catalog:
+    seed-enabled: false
   media:
     upload-dir: ${EVENTRUSH_MEDIA_UPLOAD_DIR:./data/uploads}
   organizer:

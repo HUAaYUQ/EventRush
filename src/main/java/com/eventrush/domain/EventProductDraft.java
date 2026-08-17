@@ -1,16 +1,12 @@
 package com.eventrush.domain;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
-public record OrganizerEvent(
-        Long id,
-        Long organizerId,
+public record EventProductDraft(
         String name,
-        String location,
         Long categoryId,
-        String categoryName,
         String city,
+        String venueName,
         String venueAddress,
         String description,
         String posterUrl,
@@ -21,13 +17,6 @@ public record OrganizerEvent(
         String realNameRule,
         String entryMethod,
         String refundRule,
-        boolean waitlistEnabled,
-        String status,
-        boolean hasUnpublishedChanges,
-        LocalDateTime createdTime,
-        LocalDateTime updatedTime,
-        LocalDateTime publishedTime,
-        List<EventSession> sessions,
-        List<OrganizerNotice> notices
+        boolean waitlistEnabled
 ) {
 }

@@ -18,19 +18,26 @@ public class EventCatalogService {
 
     private final Map<Long, Event> events = new ConcurrentHashMap<>();
     private final EventCatalogRepository repository;
+    private final EventCategoryRepository categoryRepository;
 
     public EventCatalogService() {
         this.repository = null;
+        this.categoryRepository = null;
     }
 
     @Autowired
-    public EventCatalogService(EventCatalogRepository repository) {
+    public EventCatalogService(
+            EventCatalogRepository repository,
+            EventCategoryRepository categoryRepository
+    ) {
         this.repository = repository;
+        this.categoryRepository = categoryRepository;
     }
 
     @PostConstruct
     void seedData() {
         if (repository != null) {
+            categoryRepository.ensureDefaults();
             repository.seedDefaultIfEmpty();
             return;
         }
@@ -45,18 +52,32 @@ public class EventCatalogService {
         );
         events.put(1L, new Event(
                 1L,
-                "校园音乐之夜",
-                "大学生活动中心",
+                "测试演出项目",
+                "测试场馆",
                 "PUBLISHED",
                 List.of(session),
-                "在校园中央舞台听见乐队、民谣与夏夜。",
-                "/images/events/campus-music-night.jpg",
+                "自动化测试使用的票务项目。",
+                "",
                 List.of()
         ));
     }
 
     public List<Event> listEvents() {
         return repository == null ? new ArrayList<>(events.values()) : repository.listPublishedEvents();
+    }
+
+    public List<Event> listEvents(Long categoryId, String city, String saleStatus, String query) {
+        String normalizedCity = city == null ? "" : city.trim();
+        String normalizedStatus = saleStatus == null ? "" : saleStatus.trim();
+        String normalizedQuery = query == null ? "" : query.trim().toLowerCase();
+        return listEvents().stream()
+                .filter(event -> categoryId == null || categoryId.equals(event.categoryId()))
+                .filter(event -> normalizedCity.isBlank() || normalizedCity.equals(event.city()))
+                .filter(event -> normalizedStatus.isBlank() || normalizedStatus.equals(event.saleStatus()))
+                .filter(event -> normalizedQuery.isBlank()
+                        || (event.name() + " " + event.city() + " " + event.location())
+                        .toLowerCase().contains(normalizedQuery))
+                .toList();
     }
 
     public Event getEvent(Long eventId) {
@@ -74,7 +95,7 @@ public class EventCatalogService {
 
     public TicketCategory getTicketCategory(Long sessionId, Long ticketCategoryId) {
         if (repository != null) {
-            return repository.findTicketCategory(sessionId, ticketCategoryId)
+            return repository.findPublishedTicketCategory(sessionId, ticketCategoryId)
                     .orElseThrow(() -> new BusinessException(
                             "TICKET_CATEGORY_NOT_FOUND", HttpStatus.NOT_FOUND, "票档不存在"));
         }
@@ -107,8 +128,7 @@ public class EventCatalogService {
                 .map(session -> session.id().equals(sessionId)
                         ? deductFromSession(session, ticketCategoryId, quantity) : session)
                 .toList();
-        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions,
-                event.description(), event.posterUrl(), event.notices());
+        Event updated = copyWithSessions(event, sessions);
         events.put(updated.id(), updated);
         return getTicketCategory(sessionId, ticketCategoryId);
     }
@@ -122,8 +142,7 @@ public class EventCatalogService {
                 .map(session -> session.id().equals(sessionId)
                         ? releaseToSession(session, ticketCategoryId, quantity) : session)
                 .toList();
-        Event updated = new Event(event.id(), event.name(), event.location(), event.status(), sessions,
-                event.description(), event.posterUrl(), event.notices());
+        Event updated = copyWithSessions(event, sessions);
         events.put(updated.id(), updated);
         return getTicketCategory(sessionId, ticketCategoryId);
     }
@@ -138,6 +157,21 @@ public class EventCatalogService {
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(
                         "SESSION_NOT_FOUND", HttpStatus.NOT_FOUND, "场次不存在"));
+    }
+
+    public boolean isWaitlistEnabled(Long sessionId) {
+        if (repository != null) {
+            return repository.isWaitlistEnabledForSession(sessionId);
+        }
+        return findEventBySessionId(sessionId).waitlistEnabled();
+    }
+
+    private Event copyWithSessions(Event event, List<EventSession> sessions) {
+        return new Event(event.id(), event.name(), event.location(), event.categoryId(),
+                event.categoryName(), event.city(), event.venueAddress(), event.status(),
+                event.saleStatus(), event.saleStartTime(), event.saleEndTime(), event.durationMinutes(),
+                event.purchaseLimit(), event.realNameRule(), event.entryMethod(), event.refundRule(),
+                event.waitlistEnabled(), sessions, event.description(), event.posterUrl(), event.notices());
     }
 
     private Event findEventBySessionId(Long sessionId) {

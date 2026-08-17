@@ -8,6 +8,7 @@ const route = useRoute()
 const router = useRouter()
 
 const events = ref([])
+const eventCategories = ref([])
 const homepageBanners = ref([])
 const homepageBannerIndex = ref(0)
 const homepageBannerPaused = ref(false)
@@ -47,8 +48,10 @@ const waitlistTraceId = ref('')
 const waitlistActionId = ref(null)
 const forcedWaitlistTicketKey = ref('')
 const searchQuery = ref('')
-const availabilityFilter = ref('all')
-const locationFilter = ref('all')
+const categoryFilter = ref('all')
+const cityFilter = ref('all')
+const dateFilter = ref('all')
+const saleStatusFilter = ref('all')
 const catalogSort = ref('soonest')
 const accountSegment = ref('all')
 const accountSelection = ref(null)
@@ -142,6 +145,7 @@ const selectedTicket = computed(() =>
       option.category.id === selectedTicketCategoryId.value,
   ),
 )
+const orderPurchaseLimit = computed(() => Math.min(20, Number(selectedTicket.value?.event.purchaseLimit || 5)))
 
 const normalizedPassengers = computed(() =>
   passengers.value.map((passenger) => ({
@@ -157,7 +161,7 @@ const passengerValidation = computed(() =>
   })),
 )
 const passengerProfilesValid = computed(
-  () => passengers.value.length >= 1 && passengers.value.length <= 5
+  () => passengers.value.length >= 1 && passengers.value.length <= orderPurchaseLimit.value
     && passengerValidation.value.every((result) => result.nameValid && result.documentValid),
 )
 const orderPreviewAmount = computed(
@@ -168,9 +172,17 @@ const ticketPriceKnown = computed(
 )
 const selectedTicketNeedsWaitlist = computed(
   () => Boolean(selectedTicket.value)
+    && Boolean(selectedTicket.value.event.waitlistEnabled)
     && (selectedTicket.value.category.remainingStock < passengers.value.length
       || forcedWaitlistTicketKey.value === selectedTicket.value.key),
 )
+const selectedTicketUnavailable = computed(() => {
+  if (!selectedTicket.value) return true
+  const event = selectedTicket.value.event
+  if (!['ON_SALE', 'SOLD_OUT'].includes(event.saleStatus)) return true
+  return selectedTicket.value.category.remainingStock < passengers.value.length
+    && !event.waitlistEnabled
+})
 const passengerChecks = computed(() => [
   {
     key: 'ticket',
@@ -392,7 +404,8 @@ const customerRefreshLoading = computed(() => activeView.value === 'tickets'
 
 const currentEvent = computed(() => {
   const eventId = Number(route.params.eventId)
-  return events.value.find((event) => event.id === eventId) ?? events.value[0] ?? null
+  if (route.params.eventId) return events.value.find((event) => event.id === eventId) ?? null
+  return events.value[0] ?? null
 })
 
 const currentEventNotices = computed(() => currentEvent.value?.notices ?? [])
@@ -401,15 +414,17 @@ const activeHomepageBanner = computed(() => homepageBanners.value[homepageBanner
 const visibleEvents = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   const filtered = events.value.filter((event) => {
-    const categories = (event.sessions ?? []).flatMap((session) => session.ticketCategories ?? [])
-    const available = categories.some((category) => category.remainingStock > 0)
-    const matchesAvailability = availabilityFilter.value === 'all'
-      || (availabilityFilter.value === 'available' && available)
-      || (availabilityFilter.value === 'waitlist' && !available && categories.length > 0)
-    const matchesLocation = locationFilter.value === 'all' || event.location === locationFilter.value
+    const nextSession = eventNextSession(event)
+    const daysUntil = nextSession ? (new Date(nextSession.startTime).getTime() - Date.now()) / 86400000 : Infinity
+    const matchesCategory = categoryFilter.value === 'all' || String(event.categoryId) === categoryFilter.value
+    const matchesCity = cityFilter.value === 'all' || event.city === cityFilter.value
+    const matchesDate = dateFilter.value === 'all'
+      || (dateFilter.value === 'seven' && daysUntil >= 0 && daysUntil <= 7)
+      || (dateFilter.value === 'thirty' && daysUntil >= 0 && daysUntil <= 30)
+    const matchesSaleStatus = saleStatusFilter.value === 'all' || event.saleStatus === saleStatusFilter.value
     const matchesQuery = !query
-      || `${event.name} ${event.location}`.toLowerCase().includes(query)
-    return matchesAvailability && matchesLocation && matchesQuery
+      || `${event.name} ${event.categoryName} ${event.city} ${event.location}`.toLowerCase().includes(query)
+    return matchesCategory && matchesCity && matchesDate && matchesSaleStatus && matchesQuery
   })
   return [...filtered].sort((left, right) => {
     if (catalogSort.value === 'price') {
@@ -419,7 +434,7 @@ const visibleEvents = computed(() => {
   })
 })
 
-const locationOptions = computed(() => [...new Set(events.value.map((event) => event.location).filter(Boolean))])
+const cityOptions = computed(() => [...new Set(events.value.map((event) => event.city).filter(Boolean))])
 
 const checkoutStage = computed(() => {
   if (waitlistResult.value && !order.value) return 'waitlist'
@@ -623,7 +638,7 @@ function savePassengerProfiles() {
 }
 
 function addPassenger() {
-  if (passengers.value.length >= 5) {
+  if (passengers.value.length >= orderPurchaseLimit.value) {
     return
   }
 
@@ -681,11 +696,30 @@ function eventStartingPriceCents(event) {
 }
 
 function eventPoster(event) {
-  return event?.['posterUrl'] || '/images/events/campus-music-night.jpg'
+  return event?.['posterUrl'] || ''
 }
 
 function eventImageAttrs(event, alt = '活动海报') {
   return { src: eventPoster(event), alt }
+}
+
+function saleStatusLabel(event) {
+  if (event?.saleStatus === 'UPCOMING') return '即将开售'
+  if (event?.saleStatus === 'ENDED') return '售票结束'
+  if (event?.saleStatus === 'SOLD_OUT') return event.waitlistEnabled ? '开放候补' : '已售罄'
+  return '售票中'
+}
+
+function realNameRuleLabel(value) {
+  return value === 'NOT_REQUIRED' ? '无需实名购票' : '实名制购票'
+}
+
+function entryMethodLabel(value) {
+  return {
+    E_TICKET: '电子票核验入场',
+    ID_CARD: '身份证核验入场',
+    PAPER_TICKET: '纸质票核验入场',
+  }[value] || '以活动现场说明为准'
 }
 
 function accountItemSegment(item) {
@@ -881,6 +915,14 @@ function openEvent(event) {
 
 function beginCheckout(option = selectedTicket.value) {
   if (!option) return
+  if (selectedTicketUnavailable.value) {
+    grabError.value = option.event.saleStatus === 'UPCOMING'
+      ? `该活动将在 ${formatDateTime(option.event.saleStartTime)} 开售`
+      : option.event.saleStatus === 'ENDED'
+        ? '该活动已经停止售票'
+        : '当前票档已售罄，且主办方未开放候补'
+    return
+  }
   resetRefundState()
   order.value = null
   ticket.value = null
@@ -951,6 +993,17 @@ async function loadHomepageBanners() {
   } catch (caught) {
     homepageBanners.value = []
     homepageBannerError.value = caught instanceof Error ? caught.message : '首页内容加载失败'
+  }
+}
+
+async function loadEventCategories() {
+  try {
+    const response = await fetch('/api/catalog/categories')
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload.success === false) throw new Error(payload.message || '活动类目加载失败')
+    eventCategories.value = payload.data ?? []
+  } catch {
+    eventCategories.value = []
   }
 }
 
@@ -1563,7 +1616,7 @@ onMounted(async () => {
   clockTimer = window.setInterval(() => {
     now.value = Date.now()
   }, 1000)
-  await Promise.all([loadEvents(), loadHomepageBanners(), loadMyOrders(), loadMyWaitlists()])
+  await Promise.all([loadEvents(), loadHomepageBanners(), loadEventCategories(), loadMyOrders(), loadMyWaitlists()])
 })
 
 onUnmounted(() => {
@@ -1691,12 +1744,10 @@ onUnmounted(() => {
           </div>
         </template>
       </section>
-      <p v-else-if="homepageBannerError" class="homepage-banner-error">首页推荐暂时没有加载成功，活动目录仍可正常使用。</p>
       <div class="discover-heading">
         <div>
-          <p class="customer-kicker">发现现场</p>
-          <h1 id="discover-title">下一场值得出发的活动</h1>
-          <p>按活动浏览，在详情页选择场次与票档。</p>
+          <h1 id="discover-title">发现活动</h1>
+          <p>浏览已发布的演出项目与售票信息。</p>
         </div>
         <RouterLink v-if="myOrders.some((item) => item.status === 'PENDING_PAYMENT')" class="pending-order-link" to="/account">
           <span>你有待支付订单</span>
@@ -1704,18 +1755,44 @@ onUnmounted(() => {
         </RouterLink>
       </div>
 
+      <nav class="category-navigation" aria-label="活动类目">
+        <button type="button" :class="{ active:categoryFilter==='all' }" @click="categoryFilter='all'">全部</button>
+        <button
+          v-for="category in eventCategories"
+          :key="category.id"
+          type="button"
+          :class="{ active:categoryFilter===String(category.id) }"
+          @click="categoryFilter=String(category.id)"
+        >
+          {{ category.name }}
+        </button>
+      </nav>
+
       <div class="catalog-toolbar">
-        <div class="availability-tabs" role="group" aria-label="售票状态筛选">
-          <button type="button" :class="{ active: availabilityFilter === 'all' }" @click="availabilityFilter = 'all'">全部活动</button>
-          <button type="button" :class="{ active: availabilityFilter === 'available' }" @click="availabilityFilter = 'available'">正在售票</button>
-          <button type="button" :class="{ active: availabilityFilter === 'waitlist' }" @click="availabilityFilter = 'waitlist'">可候补</button>
-        </div>
         <div class="catalog-selects">
           <label>
-            <span>地点</span>
-            <select v-model="locationFilter" aria-label="按地点筛选">
-              <option value="all">全部地点</option>
-              <option v-for="location in locationOptions" :key="location" :value="location">{{ location }}</option>
+            <span>城市</span>
+            <select v-model="cityFilter" aria-label="按城市筛选">
+              <option value="all">全部城市</option>
+              <option v-for="city in cityOptions" :key="city" :value="city">{{ city }}</option>
+            </select>
+          </label>
+          <label>
+            <span>日期</span>
+            <select v-model="dateFilter" aria-label="按日期筛选">
+              <option value="all">全部日期</option>
+              <option value="seven">未来 7 天</option>
+              <option value="thirty">未来 30 天</option>
+            </select>
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model="saleStatusFilter" aria-label="按销售状态筛选">
+              <option value="all">全部状态</option>
+              <option value="UPCOMING">即将开售</option>
+              <option value="ON_SALE">售票中</option>
+              <option value="SOLD_OUT">已售罄</option>
+              <option value="ENDED">售票结束</option>
             </select>
           </label>
           <label>
@@ -1725,15 +1802,15 @@ onUnmounted(() => {
               <option value="price">起售价最低</option>
             </select>
           </label>
-          <span>{{ visibleEvents.length }} 个结果</span>
+          <span>{{ visibleEvents.length }} 个活动</span>
         </div>
       </div>
 
       <p v-if="loading" class="customer-feedback">正在加载活动…</p>
       <p v-else-if="error" class="customer-feedback error">{{ error }}</p>
       <div v-else-if="visibleEvents.length === 0" class="catalog-empty">
-        <strong>没有符合条件的活动</strong>
-        <p>换个关键词或售票状态再试。</p>
+        <strong>{{ events.length ? '没有符合条件的活动' : '活动尚未上架' }}</strong>
+        <p>{{ events.length ? '调整类目、城市、日期或售票状态后再试。' : '公开活动由主办方完成商品配置并发布后展示。' }}</p>
       </div>
       <div v-else class="event-catalog">
         <article v-for="event in visibleEvents" :key="event.id" class="event-card" @click="openEvent(event)">
@@ -1741,14 +1818,14 @@ onUnmounted(() => {
           <img v-bind="eventImageAttrs(event, `${event.name} 活动海报`)" />
           <div class="event-card-body">
             <div class="event-card-status">
-              <span :class="{ waitlist: eventRemainingStock(event) === 0 }">
-                {{ eventRemainingStock(event) > 0 ? '售票中' : '可候补' }}
+              <span :class="{ waitlist: event.saleStatus === 'SOLD_OUT' }">
+                {{ saleStatusLabel(event) }}
               </span>
               <b>{{ eventStartingPrice(event) }}</b>
             </div>
             <h2>{{ event.name }}</h2>
-            <p>{{ formatDateTime(eventNextSession(event)?.startTime) }}</p>
-            <p>{{ event.location }}</p>
+            <p>{{ event.categoryName }} · {{ formatDateTime(eventNextSession(event)?.startTime) }}</p>
+            <p>{{ event.city }} · {{ event.location }}</p>
           </div>
         </article>
       </div>
@@ -1845,24 +1922,30 @@ onUnmounted(() => {
         <article class="event-story">
           <img v-bind="eventImageAttrs(currentEvent, `${currentEvent.name} 活动海报`)" />
           <div class="event-story-copy">
-            <span class="sale-badge">{{ eventRemainingStock(currentEvent) > 0 ? '正在售票' : '开放候补' }}</span>
+            <span class="sale-badge">{{ saleStatusLabel(currentEvent) }}</span>
             <h1>{{ currentEvent.name }}</h1>
             <dl class="event-facts">
+              <div><dt>类目</dt><dd>{{ currentEvent.categoryName }}</dd></div>
               <div><dt>时间</dt><dd>{{ formatDateTime(eventNextSession(currentEvent)?.startTime) }}</dd></div>
-              <div><dt>地点</dt><dd>{{ currentEvent.location }}</dd></div>
-              <div><dt>入场</dt><dd>一人一票，电子票核验入场</dd></div>
+              <div><dt>城市</dt><dd>{{ currentEvent.city }}</dd></div>
+              <div><dt>场馆</dt><dd>{{ currentEvent.location }}</dd></div>
+              <div><dt>地址</dt><dd>{{ currentEvent.venueAddress }}</dd></div>
+              <div><dt>时长</dt><dd>约 {{ currentEvent.durationMinutes }} 分钟</dd></div>
             </dl>
             <section v-if="currentEvent.description" class="event-description">
               <h2>活动介绍</h2>
               <p>{{ currentEvent.description }}</p>
             </section>
             <section class="event-rules">
-              <h2>购票与退改</h2>
-              <ul>
-                <li>每笔订单最多添加 5 位购票人，支付后每人获得独立电子票码。</li>
-                <li>未支付订单在倒计时结束后自动取消，释放的库存可重新购买。</li>
-                <li>已核验入场的电子票不可退票，其他售后以订单页显示为准。</li>
-              </ul>
+              <h2>购票与观演规则</h2>
+              <dl>
+                <div><dt>销售时间</dt><dd>{{ formatDateTime(currentEvent.saleStartTime) }} 至 {{ formatDateTime(currentEvent.saleEndTime) }}</dd></div>
+                <div><dt>购票限制</dt><dd>每笔订单最多 {{ currentEvent.purchaseLimit }} 张</dd></div>
+                <div><dt>实名规则</dt><dd>{{ realNameRuleLabel(currentEvent.realNameRule) }}</dd></div>
+                <div><dt>入场方式</dt><dd>{{ entryMethodLabel(currentEvent.entryMethod) }}</dd></div>
+                <div><dt>退票规则</dt><dd>{{ currentEvent.refundRule }}</dd></div>
+                <div><dt>候补服务</dt><dd>{{ currentEvent.waitlistEnabled ? '该活动支持缺票候补' : '该活动不开放候补' }}</dd></div>
+              </dl>
             </section>
             <section v-if="currentEventNotices.length" class="event-notices">
               <div class="event-section-heading"><h2>活动公告</h2><span>{{ currentEventNotices.length }} 条</span></div>
@@ -1896,7 +1979,7 @@ onUnmounted(() => {
               }"
               @click="selectTicket(session.id, category.id)"
             >
-              <span><strong>{{ category.name }}</strong><small>{{ category.remainingStock > 0 ? `剩余 ${category.remainingStock} 张` : '当前无票，可候补' }}</small></span>
+              <span><strong>{{ category.name }}</strong><small>{{ category.remainingStock > 0 ? `剩余 ${category.remainingStock} 张` : (currentEvent.waitlistEnabled ? '当前无票，可候补' : '当前已售罄') }}</small></span>
               <b>{{ formatTicketPrice(category) }}</b>
             </button>
           </div>
@@ -1904,8 +1987,8 @@ onUnmounted(() => {
             <span>{{ selectedTicketNeedsWaitlist ? '将进入候补流程' : '已选票档' }}</span>
             <strong>{{ selectedTicket?.category.name ?? '请选择票档' }}</strong>
           </div>
-          <button type="button" class="customer-primary" :disabled="!selectedTicket" @click="beginCheckout()">
-            {{ selectedTicketNeedsWaitlist ? '填写购票人并候补' : '继续预订' }}
+          <button type="button" class="customer-primary" :disabled="!selectedTicket || selectedTicketUnavailable" @click="beginCheckout()">
+            {{ currentEvent.saleStatus === 'UPCOMING' ? '尚未开售' : currentEvent.saleStatus === 'ENDED' ? '售票已结束' : selectedTicketUnavailable ? '当前不可购买' : selectedTicketNeedsWaitlist ? '填写购票人并候补' : '继续预订' }}
           </button>
         </aside>
       </div>
@@ -1931,7 +2014,7 @@ onUnmounted(() => {
       <div class="panel-header">
         <div>
           <h2>填写购票人与核对订单</h2>
-          <p class="event-meta">每笔订单最多 5 位购票人，支付后每人生成一张独立电子票。</p>
+          <p class="event-meta">本活动每笔订单最多 {{ orderPurchaseLimit }} 张，支付后每位购票人生成一张独立电子票。</p>
         </div>
       </div>
 
@@ -1947,7 +2030,7 @@ onUnmounted(() => {
 
           <div class="identity-field">
             <span>购票身份</span>
-            <strong>本机演示用户 #{{ userId }}</strong>
+            <strong>当前购票账户 #{{ userId }}</strong>
           </div>
 
           <div class="passenger-list">
@@ -2024,12 +2107,13 @@ onUnmounted(() => {
             v-if="!orderReviewReady && passengers.length < 5"
             type="button"
             class="secondary-action add-passenger-action"
+            :disabled="passengers.length >= orderPurchaseLimit"
             @click="addPassenger"
           >
             添加购票人
           </button>
 
-          <p class="privacy-note">为避免演示项目收集敏感信息，这里不输入和保存完整证件号码。</p>
+          <p class="privacy-note">这里只保存购票人姓名、证件类型和证件尾号，用于订单核对。</p>
 
           <button
             v-if="!orderReviewReady"
@@ -2335,7 +2419,7 @@ onUnmounted(() => {
       <div class="panel-header">
         <div>
           <h2>我的订单与电子票</h2>
-          <p class="event-meta">本机演示用户 #{{ userId }}，刷新页面后仍可找回。</p>
+          <p class="event-meta">当前购票账户 #{{ userId }}，刷新页面后仍可找回。</p>
         </div>
         <button
           type="button"

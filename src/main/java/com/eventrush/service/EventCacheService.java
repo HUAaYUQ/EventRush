@@ -40,6 +40,10 @@ public class EventCacheService {
         }
     }
 
+    public void evictEvent(Long eventId) {
+        redisTemplate.delete(cacheKey(eventId));
+    }
+
     private String cacheKey(Long eventId) {
         return "eventrush:event:" + eventId;
     }

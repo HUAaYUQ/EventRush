@@ -22,7 +22,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.url=jdbc:h2:mem:eventrush-organizer-test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
         "eventrush.organizer.key=stage53-organizer-key",
         "eventrush.media.upload-dir=target/test-media",
-        "eventrush.stock.redis-enabled=false"
+        "eventrush.stock.redis-enabled=false",
+        "eventrush.catalog.seed-enabled=true"
 })
 @AutoConfigureMockMvc
 class OrganizerApiTest {
@@ -57,16 +58,60 @@ class OrganizerApiTest {
     }
 
     @Test
+    void managesPublicEventCategories() throws Exception {
+        Long categoryId = dataId(mockMvc.perform(post("/api/organizer/catalog/categories")
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"现场娱乐","iconKey":"ticket","displayOrder":5,"enabled":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("现场娱乐"))
+                .andReturn());
+
+        mockMvc.perform(get("/api/catalog/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].id")
+                        .value(org.hamcrest.Matchers.hasItem(categoryId.intValue())));
+
+        mockMvc.perform(put("/api/organizer/catalog/categories/%d".formatted(categoryId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"现场娱乐","iconKey":"ticket","displayOrder":5,"enabled":false}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.enabled").value(false));
+
+        mockMvc.perform(get("/api/catalog/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].id")
+                        .value(org.hamcrest.Matchers.not(
+                                org.hamcrest.Matchers.hasItem(categoryId.intValue()))));
+    }
+
+    @Test
     void publishesDraftIntoPublicCatalog() throws Exception {
         Long eventId = dataId(mockMvc.perform(post("/api/organizer/events")
                         .header("X-Organizer-Key", KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "name":"Stage 53 发布演示",
-                                  "location":"EventRush 一号馆",
+                                  "name":"春季音乐现场",
+                                  "categoryId":1,
+                                  "city":"上海",
+                                  "venueName":"EventRush 一号馆",
+                                  "venueAddress":"浦东新区海岸路 18 号",
                                   "description":"主办方发布闭环验收活动",
-                                  "posterUrl":"/images/events/campus-music-night.jpg"
+                                  "posterUrl":"/media/test-project.jpg",
+                                  "durationMinutes":120,
+                                  "saleStartTime":"2026-08-20T10:00:00",
+                                  "saleEndTime":"2026-08-31T23:00:00",
+                                  "purchaseLimit":4,
+                                  "realNameRule":"REQUIRED",
+                                  "entryMethod":"E_TICKET",
+                                  "refundRule":"开演前 48 小时可申请退票。",
+                                  "waitlistEnabled":true
                                 }
                                 """))
                 .andExpect(status().isOk()).andReturn());
@@ -96,6 +141,60 @@ class OrganizerApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
 
+        mockMvc.perform(put("/api/organizer/events/%d/sessions/%d".formatted(eventId, sessionId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"startTime":"2026-09-01T20:00:00","endTime":"2026-09-01T22:00:00"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/organizer/events/%d/sessions/%d/ticket-categories/%d"
+                        .formatted(eventId, sessionId, categoryId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"正式票","priceCents":12900,"totalStock":120}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/organizer/events/%d".formatted(eventId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"春季音乐现场·加场",
+                                  "categoryId":1,
+                                  "city":"上海",
+                                  "venueName":"EventRush 一号馆",
+                                  "venueAddress":"浦东新区海岸路 18 号",
+                                  "description":"主办方发布闭环验收活动",
+                                  "posterUrl":"/media/test-project.jpg",
+                                  "durationMinutes":120,
+                                  "saleStartTime":"2026-08-20T10:00:00",
+                                  "saleEndTime":"2026-08-31T23:00:00",
+                                  "purchaseLimit":4,
+                                  "realNameRule":"REQUIRED",
+                                  "entryMethod":"E_TICKET",
+                                  "refundRule":"开演前 48 小时可申请退票。",
+                                  "waitlistEnabled":true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.hasUnpublishedChanges").value(true));
+
+        mockMvc.perform(get("/api/events/%d".formatted(eventId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("春季音乐现场"))
+                .andExpect(jsonPath("$.data.sessions[0].startTime").value("2026-09-01T19:00:00"))
+                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].name").value("预售票"))
+                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].priceCents").value(9900));
+
+        mockMvc.perform(post("/api/organizer/events/%d/publish".formatted(eventId))
+                        .header("X-Organizer-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.hasUnpublishedChanges").value(false));
+
         mockMvc.perform(put("/api/organizer/events/%d/homepage-banner".formatted(eventId))
                         .header("X-Organizer-Key", KEY)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -103,7 +202,7 @@ class OrganizerApiTest {
                                 {
                                   "title":"Stage 56 首页主视觉",
                                   "subtitle":"主办方配置，购票首页只读取已发布版本",
-                                  "imageUrl":"/images/events/campus-music-night.jpg",
+                                  "imageUrl":"/media/test-project.jpg",
                                   "city":"北京",
                                   "displayStartTime":"2026-01-01T00:00:00",
                                   "displayEndTime":"2030-01-01T00:00:00",
@@ -135,7 +234,7 @@ class OrganizerApiTest {
                                 {
                                   "title":"Stage 56 待发布修改",
                                   "subtitle":"保存草稿不会直接替换购票端正在展示的版本",
-                                  "imageUrl":"/images/events/campus-music-night.jpg",
+                                  "imageUrl":"/media/test-project.jpg",
                                   "city":"上海",
                                   "displayStartTime":"2026-01-01T00:00:00",
                                   "displayEndTime":"2030-01-01T00:00:00",
@@ -196,17 +295,24 @@ class OrganizerApiTest {
                         .header("X-Organizer-Key", KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].userId").value(88001))
-                .andExpect(jsonPath("$.data[0].ticketCategoryName").value("预售票"))
+                .andExpect(jsonPath("$.data[0].ticketCategoryName").value("正式票"))
+                .andExpect(jsonPath("$.data[0].amountCents").value(12900))
                 .andExpect(jsonPath("$.data[0].quantity").value(1))
                 .andExpect(jsonPath("$.data[0].status").value("PENDING_PAYMENT"));
 
         mockMvc.perform(get("/api/events/%d".formatted(eventId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.name").value("Stage 53 发布演示"))
+                .andExpect(jsonPath("$.data.name").value("春季音乐现场·加场"))
+                .andExpect(jsonPath("$.data.categoryName").value("演唱会"))
+                .andExpect(jsonPath("$.data.city").value("上海"))
+                .andExpect(jsonPath("$.data.purchaseLimit").value(4))
+                .andExpect(jsonPath("$.data.waitlistEnabled").value(true))
                 .andExpect(jsonPath("$.data.description").value("主办方发布闭环验收活动"))
-                .andExpect(jsonPath("$.data.posterUrl").value("/images/events/campus-music-night.jpg"))
+                .andExpect(jsonPath("$.data.posterUrl").value("/media/test-project.jpg"))
                 .andExpect(jsonPath("$.data.notices[0].title").value("入场提醒"))
-                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].name").value("预售票"));
+                .andExpect(jsonPath("$.data.sessions[0].startTime").value("2026-09-01T20:00:00"))
+                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].name").value("正式票"))
+                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].priceCents").value(12900));
     }
 
     private Long dataId(MvcResult result) throws Exception {

@@ -36,6 +36,11 @@ class HomepageContentController {
         return homepageContentService.getOrganizerBanner(eventId).stream().toList();
     }
 
+    @GetMapping("/api/organizer/homepage/banners")
+    List<HomepageBanner> listOrganizerBanners() {
+        return homepageContentService.listOrganizerBanners();
+    }
+
     @PutMapping("/api/organizer/events/{eventId}/homepage-banner")
     HomepageBanner saveDraft(
             @PathVariable Long eventId,

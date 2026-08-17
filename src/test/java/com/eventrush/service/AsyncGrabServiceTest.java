@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.datasource.url=jdbc:h2:mem:eventrush-async-test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
         "eventrush.stock.redis-enabled=false",
         "eventrush.queue.redis-enabled=false",
-        "eventrush.queue.consumer-scan-ms=600000"
+        "eventrush.queue.consumer-scan-ms=600000",
+        "eventrush.catalog.seed-enabled=true"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @Sql(statements = {
