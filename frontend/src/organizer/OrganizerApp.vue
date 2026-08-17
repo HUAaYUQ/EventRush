@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Bell, CalendarDays, Check, ChevronRight, ClipboardList, ExternalLink, Eye, GalleryHorizontal, ImageUp, KeyRound, LayoutDashboard, Menu, Plus, Save, Tags, Ticket, X } from 'lucide-vue-next'
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, CalendarDays, Check, ChevronRight, ClipboardList, ExternalLink, Eye, FileText, GalleryHorizontal, ImageUp, KeyRound, LayoutDashboard, Menu, Plus, Save, Tags, Ticket, Trash2, X } from 'lucide-vue-next'
 import CategorySettings from './CategorySettings.vue'
 import HomepageContentCenter from './HomepageContentCenter.vue'
 
@@ -35,6 +35,7 @@ const draft = ref({
   purchaseLimit: 4, realNameRule: 'REQUIRED', entryMethod: 'E_TICKET', refundRule: '', waitlistEnabled: false,
   startTime: localTime(start), endTime: localTime(new Date(start.getTime() + 7200000)),
   categoryName: '', priceYuan: 0, totalStock: 1,
+  rules: [], detailSections: [],
 })
 const detail = ref({})
 const sessionForm = ref({ startTime: draft.value.startTime, endTime: draft.value.endTime, id: null })
@@ -42,6 +43,35 @@ const categoryForm = ref({ sessionId: '', name: '', priceYuan: 0, totalStock: 1,
 const notice = ref({ title: '', content: '' })
 const homepageBanner = ref(createHomepageBanner())
 const homepageDirty = ref(false)
+const ruleGroup = ref('PURCHASE')
+const ruleTemplates = {
+  GENERAL: [
+    ['PURCHASE', 'CHILD_POLICY', '儿童购票'], ['PURCHASE', 'INVOICE_POLICY', '发票说明'], ['PURCHASE', 'ABNORMAL_ORDER', '异常订单说明'], ['PURCHASE', 'WARM_TIP', '温馨提示'],
+    ['ATTENDANCE', 'ENTRY_TIME', '入场时间'], ['ATTENDANCE', 'PROHIBITED_ITEMS', '禁止携带物品'], ['ATTENDANCE', 'STORAGE_POLICY', '寄存说明'],
+  ],
+  PERFORMANCE: [
+    ['PURCHASE', 'CHILD_POLICY', '儿童购票'], ['PURCHASE', 'INVOICE_POLICY', '发票说明'], ['PURCHASE', 'ABNORMAL_ORDER', '异常订单说明'], ['PURCHASE', 'WARM_TIP', '温馨提示'],
+    ['ATTENDANCE', 'ENTRY_TIME', '入场时间'], ['ATTENDANCE', 'PROHIBITED_ITEMS', '禁止携带物品'], ['ATTENDANCE', 'STORAGE_POLICY', '寄存说明'], ['ATTENDANCE', 'HEALTH_NOTICE', '健康与安全提示'],
+  ],
+  SPORTS: [
+    ['PURCHASE', 'CHILD_POLICY', '儿童购票'], ['PURCHASE', 'INVOICE_POLICY', '发票说明'], ['PURCHASE', 'ABNORMAL_ORDER', '异常订单说明'], ['PURCHASE', 'WARM_TIP', '温馨提示'],
+    ['ATTENDANCE', 'ENTRY_TIME', '入场时间'], ['ATTENDANCE', 'PROHIBITED_ITEMS', '禁止携带物品'], ['ATTENDANCE', 'STORAGE_POLICY', '寄存说明'], ['ATTENDANCE', 'MATCH_NOTICE', '赛事特别说明'],
+  ],
+  EXHIBITION: [
+    ['PURCHASE', 'CHILD_POLICY', '儿童购票'], ['PURCHASE', 'INVOICE_POLICY', '发票说明'], ['PURCHASE', 'ABNORMAL_ORDER', '异常订单说明'], ['PURCHASE', 'WARM_TIP', '温馨提示'],
+    ['ATTENDANCE', 'ENTRY_TIME', '入场时间'], ['ATTENDANCE', 'PROHIBITED_ITEMS', '禁止携带物品'], ['ATTENDANCE', 'STORAGE_POLICY', '寄存说明'], ['ATTENDANCE', 'REENTRY_POLICY', '重复入场规则'], ['ATTENDANCE', 'DRESS_CODE', '着装与特殊通道'],
+  ],
+  FAMILY: [
+    ['PURCHASE', 'CHILD_POLICY', '儿童购票'], ['PURCHASE', 'AGE_GUIDANCE', '建议年龄'], ['PURCHASE', 'INVOICE_POLICY', '发票说明'], ['PURCHASE', 'WARM_TIP', '温馨提示'],
+    ['ATTENDANCE', 'ENTRY_TIME', '入场时间'], ['ATTENDANCE', 'STROLLER_POLICY', '婴儿车与儿童设施'], ['ATTENDANCE', 'PROHIBITED_ITEMS', '禁止携带物品'], ['ATTENDANCE', 'STORAGE_POLICY', '寄存说明'],
+  ],
+}
+const profileLabels = { PERFORMANCE: '演出', SPORTS: '赛事', EXHIBITION: '展览', FAMILY: '亲子', GENERAL: '活动' }
+const detailTypes = [
+  { type: 'RICH_TEXT', label: '图文介绍' }, { type: 'HIGHLIGHT', label: '活动亮点' },
+  { type: 'CAST', label: '阵容信息' }, { type: 'IMAGE', label: '详情图片' },
+  { type: 'TRANSPORT', label: '交通指引' }, { type: 'IMPORTANT_NOTICE', label: '重要说明' },
+]
 
 const screen = computed(() => route.meta.screen || 'organizer-list')
 const screenTitle = computed(() => ({
@@ -68,9 +98,9 @@ const contentRows = computed(() => events.value.map((item) => ({
 })))
 const checks = computed(() => [
   { label: '活动商品', ok: validProduct(draft.value), value: validProduct(draft.value) ? `${draft.value.name} · ${draft.value.city} · ${draft.value.venueName}` : '请补全类目、城市、场馆和介绍', step: 0 },
-  { label: '销售与规则', ok: validSaleRules(draft.value), value: validSaleRules(draft.value) ? `${fmtDate(draft.value.saleStartTime)} 开售 · 每单限购 ${draft.value.purchaseLimit} 张` : '请补全销售时间和票务规则', step: 1 },
-  { label: '场次时间', ok: validTime(draft.value), value: validTime(draft.value) ? `${fmtDate(draft.value.startTime)} 至 ${fmtDate(draft.value.endTime)}` : '结束时间必须晚于开始时间', step: 2 },
-  { label: '票档与库存', ok: validTicket(draft.value), value: validTicket(draft.value) ? `${draft.value.categoryName} · ${money(draft.value.priceYuan * 100)} · ${draft.value.totalStock} 张` : '请补全票档、票价和票数', step: 3 },
+  { label: '场次与售票', ok: validSaleSetup(draft.value), value: validSaleSetup(draft.value) ? `${fmtDate(draft.value.startTime)} · ${draft.value.categoryName} · ${draft.value.totalStock} 张` : '请补全销售周期、场次和首个票档', step: 1 },
+  { label: '购票与入场规则', ok: validRules(draft.value), value: validRules(draft.value) ? `已配置 ${draft.value.rules.length} 条公开规则` : '请补全当前类目要求的全部规则', step: 2 },
+  { label: '活动详情', ok: validDetails(draft.value), value: validDetails(draft.value) ? `已编排 ${draft.value.detailSections.length} 个详情模块` : '请至少配置一个有内容的详情模块', step: 3 },
   { label: '活动封面', ok: !!draft.value.posterUrl, value: draft.value.posterUrl ? '活动封面已上传' : '请上传活动封面', step: 0 },
 ])
 const canPublish = computed(() => checks.value.every((item) => item.ok))
@@ -115,8 +145,50 @@ function validTime(value, startKey = 'startTime', endKey = 'endTime') { return v
 function validTicket(value) { return value.categoryName?.trim() && Number(value.priceYuan) >= 0 && Number(value.totalStock) >= 1 }
 function validProduct(value) { return !!(value.name?.trim() && value.categoryId && value.city?.trim() && value.venueName?.trim() && value.venueAddress?.trim() && value.description?.trim()) }
 function validSaleRules(value) { return validTime(value, 'saleStartTime', 'saleEndTime') && Number(value.durationMinutes) >= 1 && Number(value.purchaseLimit) >= 1 && value.refundRule?.trim() }
+function validSaleSetup(value) { return validSaleRules(value) && validTime(value) && validTicket(value) }
+function validRules(value) {
+  const rules = value.rules || []
+  return rules.length > 0 && ['PURCHASE', 'ATTENDANCE'].every((group) => rules.some((item) => item.ruleGroup === group))
+    && rules.every((item) => item.title?.trim() && item.content?.trim())
+}
+function validDetails(value) {
+  const sections = value.detailSections || []
+  return sections.length > 0 && sections.every((item) => item.title?.trim() && (item.content?.trim() || item.imageUrl))
+}
+function profileFor(value) {
+  return categories.value.find((item) => String(item.id) === String(value.categoryId))?.contentProfile || value.contentProfile || 'GENERAL'
+}
+function profileNoun(value) { return profileLabels[profileFor(value)] || '活动' }
+function syncRuleProfile(value) {
+  const existing = new Map((value.rules || []).map((item) => [item.ruleCode, item]))
+  const template = ruleTemplates[profileFor(value)] || ruleTemplates.GENERAL
+  value.rules = template.map(([group, code, title], index) => ({
+    ruleGroup: group, ruleCode: code, title: existing.get(code)?.title || title,
+    content: existing.get(code)?.content || '', displayOrder: index * 10,
+  }))
+}
+function rulesFor(value, group) { return (value.rules || []).filter((item) => item.ruleGroup === group) }
+function detailTitle(value, type) {
+  const noun = profileNoun(value)
+  return { RICH_TEXT: `${noun}介绍`, HIGHLIGHT: `${noun}亮点`, CAST: noun === '赛事' ? '参赛阵容' : '演出阵容', IMAGE: '详情图片', TRANSPORT: '交通与到场', IMPORTANT_NOTICE: '重要说明' }[type] || '详情内容'
+}
+function addDetailSection(value, type) {
+  value.detailSections ||= []
+  value.detailSections.push({ sectionType: type, title: detailTitle(value, type), content: '', imageUrl: '', displayOrder: value.detailSections.length * 10 })
+}
+function removeDetailSection(value, index) { value.detailSections.splice(index, 1); reindexSections(value) }
+function moveDetailSection(value, index, offset) {
+  const target = index + offset
+  if (target < 0 || target >= value.detailSections.length) return
+  const [item] = value.detailSections.splice(index, 1)
+  value.detailSections.splice(target, 0, item)
+  reindexSections(value)
+}
+function reindexSections(value) { value.detailSections.forEach((item, index) => { item.displayOrder = index * 10 }) }
 function ticketCount(item) { return (item.sessions || []).flatMap((session) => session.ticketCategories || []).reduce((sum, category) => sum + Number(category.totalStock || 0), 0) }
-function productPayload(value) {
+function productPayload(value, omitIncompleteContent = false) {
+  const rules = (value.rules || []).filter((item) => !omitIncompleteContent || (item.title?.trim() && item.content?.trim()))
+  const detailSections = (value.detailSections || []).filter((item) => !omitIncompleteContent || (item.title?.trim() && (item.content?.trim() || item.imageUrl)))
   return {
     name: value.name?.trim(), categoryId: Number(value.categoryId), city: value.city?.trim(),
     venueName: value.venueName?.trim(), venueAddress: value.venueAddress?.trim(),
@@ -125,6 +197,8 @@ function productPayload(value) {
     saleEndTime: value.saleEndTime, purchaseLimit: Number(value.purchaseLimit),
     realNameRule: value.realNameRule, entryMethod: value.entryMethod,
     refundRule: value.refundRule?.trim(), waitlistEnabled: Boolean(value.waitlistEnabled),
+    rules: rules.map((item, index) => ({ ruleGroup: item.ruleGroup, ruleCode: item.ruleCode, title: item.title.trim(), content: item.content.trim(), displayOrder: index * 10 })),
+    detailSections: detailSections.map((item, index) => ({ sectionType: item.sectionType, title: item.title.trim(), content: item.content?.trim() || '', imageUrl: item.imageUrl || '', displayOrder: index * 10 })),
   }
 }
 function createHomepageBanner(eventValue = null) {
@@ -170,6 +244,7 @@ async function load() {
       detail.value = {
         ...event.value, categoryId: String(event.value.categoryId || ''), venueName: event.value.location,
         saleStartTime: localTime(new Date(event.value.saleStartTime)), saleEndTime: localTime(new Date(event.value.saleEndTime)),
+        rules: event.value.rules || [], detailSections: event.value.detailSections || [],
       }
       tab.value = route.query.tab || 'overview'
       categoryForm.value.sessionId ||= String(event.value.sessions?.[0]?.id || '')
@@ -199,7 +274,8 @@ async function reconnect() { localStorage.setItem('eventrush-organizer-key', key
 function restore() {
   try {
     const value = JSON.parse(localStorage.getItem('eventrush-organizer-draft') || 'null')
-    if (value) { draft.value = { ...draft.value, ...value.draft }; ids.value = { ...ids.value, ...value.ids } }
+    if (value) { draft.value = { ...draft.value, ...value.draft, rules: value.draft?.rules || [], detailSections: value.draft?.detailSections || [] }; ids.value = { ...ids.value, ...value.ids } }
+    if (draft.value.categoryId && !draft.value.rules.length) syncRuleProfile(draft.value)
   } catch { localStorage.removeItem('eventrush-organizer-draft') }
 }
 function saveLocal() {
@@ -208,24 +284,37 @@ function saveLocal() {
 }
 watch(draft, saveLocal, { deep: true })
 
-async function saveBasic() {
-  if (!validProduct(draft.value) || !validSaleRules(draft.value)) { error.value = '请先补全活动商品和销售规则'; return }
-  const result = await run('basic', () => api(ids.value.event ? `/api/organizer/events/${ids.value.event}` : '/api/organizer/events', {
-    method: ids.value.event ? 'PUT' : 'POST', body: JSON.stringify(productPayload(draft.value)),
-  }))
-  if (result) { ids.value.event = result.id; step.value = 2; saveLocal() }
+async function saveSaleSetup() {
+  if (!validProduct(draft.value) || !validSaleSetup(draft.value)) { error.value = '请补全活动商品、销售周期、场次和首个票档'; return }
+  const result = await run('saleSetup', async () => {
+    const product = await api(ids.value.event ? `/api/organizer/events/${ids.value.event}` : '/api/organizer/events', {
+      method: ids.value.event ? 'PUT' : 'POST', body: JSON.stringify(productPayload(draft.value, true)),
+    })
+    ids.value.event = product.id
+    const sessionBase = `/api/organizer/events/${ids.value.event}/sessions`
+    const session = await api(ids.value.session ? `${sessionBase}/${ids.value.session}` : sessionBase, {
+      method: ids.value.session ? 'PUT' : 'POST', body: JSON.stringify({ startTime: draft.value.startTime, endTime: draft.value.endTime }),
+    })
+    ids.value.session = session.id
+    const categoryBase = `/api/organizer/events/${ids.value.event}/sessions/${ids.value.session}/ticket-categories`
+    const category = await api(ids.value.category ? `${categoryBase}/${ids.value.category}` : categoryBase, {
+      method: ids.value.category ? 'PUT' : 'POST', body: JSON.stringify({ name: draft.value.categoryName, priceCents: Math.round(draft.value.priceYuan * 100), totalStock: Number(draft.value.totalStock) }),
+    })
+    ids.value.category = category.id
+    return product
+  })
+  saveLocal()
+  if (result) step.value = 2
 }
-async function saveSession() {
-  if (!validTime(draft.value)) { error.value = '结束时间必须晚于开始时间'; return }
-  const base = `/api/organizer/events/${ids.value.event}/sessions`
-  const result = await run('session', () => api(ids.value.session ? `${base}/${ids.value.session}` : base, { method: ids.value.session ? 'PUT' : 'POST', body: JSON.stringify({ startTime: draft.value.startTime, endTime: draft.value.endTime }) }))
-  if (result) { ids.value.session = result.id; step.value = 3; saveLocal() }
+async function saveRules() {
+  if (!validRules(draft.value)) { error.value = '请补全当前类目要求的购票和入场规则'; return }
+  const result = await run('rules', () => api(`/api/organizer/events/${ids.value.event}`, { method: 'PUT', body: JSON.stringify(productPayload(draft.value)) }))
+  if (result) { step.value = 3; saveLocal() }
 }
-async function saveCategory() {
-  if (!validTicket(draft.value)) { error.value = '请填写有效的票档名称、票价和票数'; return }
-  const base = `/api/organizer/events/${ids.value.event}/sessions/${ids.value.session}/ticket-categories`
-  const result = await run('category', () => api(ids.value.category ? `${base}/${ids.value.category}` : base, { method: ids.value.category ? 'PUT' : 'POST', body: JSON.stringify({ name: draft.value.categoryName, priceCents: Math.round(draft.value.priceYuan * 100), totalStock: Number(draft.value.totalStock) }) }))
-  if (result) { ids.value.category = result.id; step.value = 4; saveLocal() }
+async function saveDetails() {
+  if (!validDetails(draft.value)) { error.value = '请至少配置一个有文字或图片的详情模块'; return }
+  const result = await run('details', () => api(`/api/organizer/events/${ids.value.event}`, { method: 'PUT', body: JSON.stringify(productPayload(draft.value)) }))
+  if (result) { step.value = 4; saveLocal() }
 }
 async function publish() {
   if (!canPublish.value || !confirm(`发布后，“${draft.value.name}”会立即出现在购票平台。确认发布吗？`)) return
@@ -236,6 +325,15 @@ async function saveDetail() {
   if (!validProduct(detail.value) || !validSaleRules(detail.value)) { error.value = '请补全活动商品和销售规则'; return }
   const result = await run('detail', () => api(`/api/organizer/events/${event.value.id}`, { method: 'PUT', body: JSON.stringify(productPayload(detail.value)) }))
   if (result) { event.value = result; success.value = result.hasUnpublishedChanges ? '修改已保存，购票端仍展示上一发布版本' : '活动信息已保存' }
+}
+async function saveDetailContent() {
+  if (!validRules(detail.value) || !validDetails(detail.value)) { error.value = '请补全购票须知、入场须知和至少一个详情模块'; return }
+  const result = await run('detailContent', () => api(`/api/organizer/events/${event.value.id}`, { method: 'PUT', body: JSON.stringify(productPayload(detail.value)) }))
+  if (result) {
+    event.value = result
+    detail.value = { ...detail.value, rules: result.rules || [], detailSections: result.detailSections || [] }
+    success.value = result.hasUnpublishedChanges ? '详情草稿已保存，购票端仍展示上一发布版本' : '详情内容已保存'
+  }
 }
 async function publishCurrentEvent() {
   if (!confirm('发布后，当前活动草稿会替换购票端正在展示的版本。确认发布吗？')) return
@@ -343,6 +441,22 @@ async function uploadEventPoster(changeEvent, target) {
   })
   if (result) { target.posterUrl = result.url; success.value = '活动封面已上传' }
 }
+async function uploadDetailImage(changeEvent, section) {
+  const file = changeEvent.target.files?.[0]
+  changeEvent.target.value = ''
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { error.value = '只支持 JPG、PNG 和 WebP 图片'; return }
+  if (file.size > 5 * 1024 * 1024) { error.value = '图片不能超过 5 MB'; return }
+  const result = await run('detailImage', async () => {
+    const body = new FormData()
+    body.append('file', file)
+    const response = await fetch('/api/organizer/media/images', { method: 'POST', headers: { 'X-Organizer-Key': key.value }, body })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload.success === false) throw new Error(payload.message || '详情图片上传失败')
+    return payload.data
+  })
+  if (result) { section.imageUrl = result.url; success.value = '详情图片已上传' }
+}
 function childError(message) { error.value = message; success.value = '' }
 function childSuccess(message) { success.value = message; error.value = '' }
 function editSession(item) { sessionForm.value = { id: item.id, startTime: localTime(new Date(item.startTime)), endTime: localTime(new Date(item.endTime)) } }
@@ -383,14 +497,14 @@ onMounted(load)
         <CategorySettings v-else-if="screen === 'organizer-categories'" :categories="categories" :api="api" @reload="load" @error="childError" @success="childSuccess" />
 
         <template v-else-if="screen === 'organizer-create'">
-          <header class="org-page-head"><div><RouterLink class="org-back" to="/organizer/events"><ArrowLeft />活动列表</RouterLink><h1>发布活动</h1><p>先完成商品与销售规则，再配置首个场次和票档。</p></div><span v-if="savedAt" class="org-saved"><Save />草稿保存于 {{ savedAt }}</span></header>
-          <ol class="org-stepper"><li v-for="(label,index) in ['商品信息','销售规则','场次','票档与库存','发布检查']" :key="label" :class="{ current:index===step,done:index<step }"><button :disabled="index>step" @click="index<=step&&(step=index)"><span>{{ index<step?'✓':index+1 }}</span>{{ label }}</button></li></ol>
+          <header class="org-page-head"><div><RouterLink class="org-back" to="/organizer/events"><ArrowLeft />活动列表</RouterLink><h1>发布活动</h1><p>把售票商品、用户须知和公开详情作为同一份发布责任完成。</p></div><span v-if="savedAt" class="org-saved"><Save />草稿保存于 {{ savedAt }}</span></header>
+          <ol class="org-stepper"><li v-for="(label,index) in ['商品定位','场次售票','购票与入场规则','详情内容','预览发布']" :key="label" :class="{ current:index===step,done:index<step }"><button :disabled="index>step" @click="index<=step&&(step=index)"><span>{{ index<step?'✓':index+1 }}</span>{{ label }}</button></li></ol>
           <div class="org-workflow"><form class="org-form" @submit.prevent>
             <section v-if="step===0">
               <div class="org-form-head"><b>1</b><div><h2>活动商品信息</h2><p>类目、城市、场馆和封面决定用户如何找到并识别活动。</p></div></div>
               <div class="org-fields">
                 <label class="wide"><span>活动名称 *</span><input v-model="draft.name" maxlength="100" /></label>
-                <label><span>活动类目 *</span><select v-model="draft.categoryId"><option value="" disabled>选择类目</option><option v-for="item in categories.filter((value)=>value.enabled)" :key="item.id" :value="String(item.id)">{{ item.name }}</option></select></label>
+                <label><span>活动类目 *</span><select v-model="draft.categoryId" @change="syncRuleProfile(draft)"><option value="" disabled>选择类目</option><option v-for="item in categories.filter((value)=>value.enabled)" :key="item.id" :value="String(item.id)">{{ item.name }}</option></select><small v-if="draft.categoryId">采用{{ profileNoun(draft) }}内容模板</small></label>
                 <label><span>城市 *</span><input v-model="draft.city" maxlength="80" /></label>
                 <label><span>场馆名称 *</span><input v-model="draft.venueName" maxlength="160" /></label>
                 <label><span>场馆地址 *</span><input v-model="draft.venueAddress" maxlength="200" /></label>
@@ -399,32 +513,45 @@ onMounted(load)
               <div class="org-event-upload"><div><ImageUp /><div><strong>活动封面 *</strong><span>JPG、PNG 或 WebP，最大 5 MB，建议竖版海报</span></div></div><label class="org-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadEventPoster($event,draft)" />{{ busy==='eventPoster'?'上传中':'上传封面' }}</label><code v-if="draft.posterUrl">{{ draft.posterUrl }}</code></div>
             </section>
             <section v-else-if="step===1">
-              <div class="org-form-head"><b>2</b><div><h2>销售与观演规则</h2><p>这些规则会在活动详情和下单环节明确告知用户。</p></div></div>
-              <div class="org-fields">
+              <div class="org-form-head"><b>2</b><div><h2>场次与售票</h2><p>一次完成首场销售周期、时间和票档，后续可在活动管理中继续增加。</p></div></div>
+              <div class="org-subsection"><header><CalendarDays /><div><strong>销售周期</strong><small>超出时间后用户无法下单</small></div></header><div class="org-fields">
                 <label><span>开始售票 *</span><input v-model="draft.saleStartTime" type="datetime-local" /></label><label><span>停止售票 *</span><input v-model="draft.saleEndTime" type="datetime-local" /></label>
-                <label><span>演出时长（分钟）*</span><input v-model.number="draft.durationMinutes" type="number" min="1" max="1440" /></label><label><span>每单限购（张）*</span><input v-model.number="draft.purchaseLimit" type="number" min="1" max="20" /></label>
+                <label><span>活动时长（分钟）*</span><input v-model.number="draft.durationMinutes" type="number" min="1" max="1440" /></label><label><span>每单限购（张）*</span><input v-model.number="draft.purchaseLimit" type="number" min="1" max="20" /></label>
                 <label><span>实名规则 *</span><select v-model="draft.realNameRule"><option value="REQUIRED">实名购票</option><option value="NOT_REQUIRED">非强制实名</option></select></label>
                 <label><span>入场方式 *</span><select v-model="draft.entryMethod"><option value="E_TICKET">电子票核验</option><option value="ID_CARD">身份证核验</option><option value="PAPER_TICKET">纸质票入场</option></select></label>
-                <label class="wide"><span>退票规则 *</span><textarea v-model="draft.refundRule" rows="4" maxlength="500"></textarea></label>
+                <label class="wide"><span>退票规则 *</span><textarea v-model="draft.refundRule" rows="3" maxlength="500"></textarea><small>明确不支持退票或写清可退条件，购票端将原文展示</small></label>
                 <label class="org-switch wide"><input v-model="draft.waitlistEnabled" type="checkbox" /><span><strong>开放缺票候补</strong><small>票档售罄后允许用户登记候补需求</small></span></label>
-              </div>
+              </div></div>
+              <div class="org-subsection"><header><Ticket /><div><strong>首个场次与票档</strong><small>场次、价格与库存会进入订单链路</small></div></header><div class="org-fields three">
+                <label><span>场次开始 *</span><input v-model="draft.startTime" type="datetime-local" /></label><label><span>场次结束 *</span><input v-model="draft.endTime" type="datetime-local" /></label><span></span>
+                <label><span>票档名称 *</span><input v-model="draft.categoryName" /></label><label><span>票价（元）*</span><input v-model.number="draft.priceYuan" type="number" min="0" step="0.01" /></label><label><span>可售票数 *</span><input v-model.number="draft.totalStock" type="number" min="1" /></label>
+              </div><div class="org-derived"><span>首票档票面总额</span><strong>{{ money(draft.priceYuan*draft.totalStock*100) }}</strong><small>{{ draft.totalStock }} 张 × {{ money(draft.priceYuan*100) }}</small></div></div>
             </section>
-            <section v-else-if="step===2"><div class="org-form-head"><b>3</b><div><h2>首个活动场次</h2><p>时间将展示在活动列表、详情页和订单中。</p></div></div><div class="org-fields two"><label><span>开始时间 *</span><input v-model="draft.startTime" type="datetime-local" /></label><label><span>结束时间 *</span><input v-model="draft.endTime" type="datetime-local" /></label></div></section>
-            <section v-else-if="step===3"><div class="org-form-head"><b>4</b><div><h2>首个票档</h2><p>票价和可售数量直接进入库存与订单链路。</p></div></div><div class="org-fields three"><label><span>票档名称 *</span><input v-model="draft.categoryName" /></label><label><span>票价（元）*</span><input v-model.number="draft.priceYuan" type="number" min="0" step="0.01" /></label><label><span>可售票数 *</span><input v-model.number="draft.totalStock" type="number" min="1" /></label></div><div class="org-derived"><span>预计票面总额</span><strong>{{ money(draft.priceYuan*draft.totalStock*100) }}</strong><small>{{ draft.totalStock }} 张 × {{ money(draft.priceYuan*100) }}</small></div></section>
-            <section v-else><div class="org-form-head"><b>5</b><div><h2>发布检查</h2><p>只有完整商品、销售规则、场次和票档才能公开。</p></div></div><div class="org-checks"><button v-for="item in checks" :key="item.label" @click="step=item.step"><span :class="item.ok?'ok':'no'">{{ item.ok?'✓':'!' }}</span><div><strong>{{ item.label }}</strong><small>{{ item.value }}</small></div><ChevronRight /></button></div></section>
-            <footer><button v-if="step>0" class="org-secondary" @click="step--">上一步</button><span v-else>草稿自动保存在当前浏览器</span><button v-if="step===0" class="org-primary" :disabled="!validProduct(draft)" @click="step=1">继续配置规则</button><button v-else-if="step===1" class="org-primary" @click="saveBasic">{{ busy==='basic'?'保存中':'保存商品并继续' }}</button><button v-else-if="step===2" class="org-primary" @click="saveSession">{{ busy==='session'?'保存中':'保存场次并继续' }}</button><button v-else-if="step===3" class="org-primary" @click="saveCategory">{{ busy==='category'?'保存中':'保存票档并检查' }}</button><button v-else class="org-primary" :disabled="!canPublish" @click="publish">{{ busy==='publish'?'发布中':'确认发布' }}</button></footer>
+            <section v-else-if="step===2">
+              <div class="org-form-head"><b>3</b><div><h2>购票与入场规则</h2><p>当前采用{{ profileNoun(draft) }}模板。每条规则都将在购票详情页公开，不填示例文案。</p></div></div>
+              <div class="org-segments" role="tablist"><button type="button" :class="{active:ruleGroup==='PURCHASE'}" @click="ruleGroup='PURCHASE'">购票须知 <span>{{ rulesFor(draft,'PURCHASE').length }}</span></button><button type="button" :class="{active:ruleGroup==='ATTENDANCE'}" @click="ruleGroup='ATTENDANCE'">入场须知 <span>{{ rulesFor(draft,'ATTENDANCE').length }}</span></button></div>
+              <div class="org-rule-list"><label v-for="item in rulesFor(draft,ruleGroup)" :key="item.ruleCode"><span>{{ item.title }} *</span><textarea v-model="item.content" rows="3" maxlength="800"></textarea><small>{{ item.content.length }}/800 · {{ item.ruleCode }}</small></label></div>
+            </section>
+            <section v-else-if="step===3">
+              <div class="org-form-head"><b>4</b><div><h2>详情内容</h2><p>按购票端阅读顺序编排模块，图片必须由主办方上传。</p></div></div>
+              <div class="org-detail-actions"><span>添加模块</span><button v-for="item in detailTypes" :key="item.type" type="button" @click="addDetailSection(draft,item.type)"><Plus />{{ item.label }}</button></div>
+              <div v-if="!draft.detailSections.length" class="org-builder-empty"><FileText /><strong>还没有详情模块</strong><p>至少添加一个图文、亮点、阵容、图片、交通或重要说明模块。</p></div>
+              <div class="org-detail-builder"><article v-for="(item,index) in draft.detailSections" :key="`${item.sectionType}-${index}`"><header><div><FileText /><span>{{ detailTypes.find((value)=>value.type===item.sectionType)?.label }}</span></div><div><button type="button" title="上移" :disabled="index===0" @click="moveDetailSection(draft,index,-1)"><ArrowUp /></button><button type="button" title="下移" :disabled="index===draft.detailSections.length-1" @click="moveDetailSection(draft,index,1)"><ArrowDown /></button><button type="button" title="删除" @click="removeDetailSection(draft,index)"><Trash2 /></button></div></header><label><span>模块标题 *</span><input v-model="item.title" maxlength="80" /></label><label v-if="item.sectionType!=='IMAGE'"><span>公开内容 *</span><textarea v-model="item.content" rows="5" maxlength="4000"></textarea><small>{{ item.content.length }}/4000</small></label><div v-if="item.sectionType==='IMAGE' || item.imageUrl" class="org-detail-upload"><img v-if="item.imageUrl" :src="item.imageUrl" :alt="item.title" /><div v-else><ImageUp /><span>JPG、PNG 或 WebP，最大 5 MB</span></div><label class="org-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadDetailImage($event,item)" />{{ item.imageUrl?'更换图片':'上传图片' }}</label></div></article></div>
+            </section>
+            <section v-else><div class="org-form-head"><b>5</b><div><h2>预览与发布检查</h2><p>公开版本必须同时具备商品、场次售票、规则、详情和封面。</p></div></div><div class="org-checks"><button v-for="item in checks" :key="item.label" type="button" @click="step=item.step"><span :class="item.ok?'ok':'no'">{{ item.ok?'✓':'!' }}</span><div><strong>{{ item.label }}</strong><small>{{ item.value }}</small></div><ChevronRight /></button></div></section>
+            <footer><button v-if="step>0" type="button" class="org-secondary" @click="step--">上一步</button><span v-else>草稿自动保存在当前浏览器</span><button v-if="step===0" type="button" class="org-primary" :disabled="!validProduct(draft)" @click="step=1">继续配置售票</button><button v-else-if="step===1" type="button" class="org-primary" @click="saveSaleSetup">{{ busy==='saleSetup'?'保存中':'保存售票并继续' }}</button><button v-else-if="step===2" type="button" class="org-primary" @click="saveRules">{{ busy==='rules'?'保存中':'保存规则并继续' }}</button><button v-else-if="step===3" type="button" class="org-primary" @click="saveDetails">{{ busy==='details'?'保存中':'保存详情并检查' }}</button><button v-else type="button" class="org-primary" :disabled="!canPublish" @click="publish">{{ busy==='publish'?'发布中':'确认发布' }}</button></footer>
           </form><aside class="org-preview"><header><strong>购票页预览</strong><span>实时更新</span></header><div v-if="!draft.posterUrl" class="org-preview-empty"><ImageUp /><span>封面待上传</span></div><img v-else v-bind="imageAttrs(draft, '活动封面预览')" /><div><span>{{ draft.categoryId ? categories.find((item)=>String(item.id)===String(draft.categoryId))?.name : '类目待选择' }}</span><h3>{{ draft.name||'活动名称待填写' }}</h3><p>{{ draft.city||'城市待填写' }} · {{ draft.venueName||'场馆待填写' }}</p><strong>{{ validTicket(draft)?`${money(draft.priceYuan*100)} 起`:'票价待设置' }}</strong></div><small>发布前预览商品核心信息，用户端仅显示正式发布版本。</small></aside></div>
         </template>
 
         <template v-else-if="event">
           <header class="org-page-head"><div><RouterLink class="org-back" to="/organizer/events"><ArrowLeft />活动列表</RouterLink><div class="org-title"><span :data-status="event.status">{{ status(event.status) }}</span><h1>{{ event.name }}</h1></div><p>{{ event.city }} · {{ event.location }} · 活动编号 {{ event.id }}</p></div><div class="org-head-actions"><button v-if="event.hasUnpublishedChanges" class="org-primary" :disabled="!!busy" @click="publishCurrentEvent"><ExternalLink />{{ busy==='republish'?'发布中':'发布最新版本' }}</button><RouterLink v-if="event.status==='PUBLISHED'" class="org-secondary" :to="`/events/${event.id}`"><Eye />查看线上版本</RouterLink></div></header>
-          <nav class="org-tabs"><button v-for="item in [{k:'overview',l:'概览'},{k:'homepage',l:'首页曝光'},{k:'sessions',l:'场次与票档'},{k:'orders',l:'订单与售后'},{k:'notices',l:'通知'}]" :key="item.k" :class="{active:tab===item.k}" @click="tab=item.k">{{ item.l }}</button></nav>
+          <nav class="org-tabs"><button v-for="item in [{k:'overview',l:'概览'},{k:'content',l:'详情与规则'},{k:'homepage',l:'首页曝光'},{k:'sessions',l:'场次与票档'},{k:'orders',l:'订单与售后'},{k:'notices',l:'通知'}]" :key="item.k" :class="{active:tab===item.k}" @click="tab=item.k">{{ item.l }}</button></nav>
           <section v-if="tab==='overview'" class="org-detail">
             <form @submit.prevent="saveDetail">
               <header><div><h2>活动商品与销售规则</h2><p>{{ event.status==='PUBLISHED' ? '保存修改不会直接影响购票端，需要再次发布最新版本。' : '补全后可配置场次和票档并发布。' }}</p></div><button class="org-primary"><Save />保存修改</button></header>
               <div class="org-fields">
                 <label class="wide"><span>活动名称 *</span><input v-model="detail.name" maxlength="100" /></label>
-                <label><span>活动类目 *</span><select v-model="detail.categoryId"><option value="" disabled>选择类目</option><option v-for="item in categories" :key="item.id" :value="String(item.id)">{{ item.name }}{{ item.enabled ? '' : '（已停用）' }}</option></select></label>
+                <label><span>活动类目 *</span><select v-model="detail.categoryId" @change="syncRuleProfile(detail)"><option value="" disabled>选择类目</option><option v-for="item in categories" :key="item.id" :value="String(item.id)">{{ item.name }}{{ item.enabled ? '' : '（已停用）' }}</option></select></label>
                 <label><span>城市 *</span><input v-model="detail.city" maxlength="80" /></label>
                 <label><span>场馆名称 *</span><input v-model="detail.venueName" maxlength="160" /></label>
                 <label><span>场馆地址 *</span><input v-model="detail.venueAddress" maxlength="200" /></label>
@@ -439,6 +566,17 @@ onMounted(load)
               <div class="org-event-upload"><div><ImageUp /><div><strong>活动封面 *</strong><span>从本地上传并由平台保存，购票端不读取外部占位图</span></div></div><label class="org-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadEventPoster($event,detail)" />{{ busy==='eventPoster'?'上传中':'更换封面' }}</label><code v-if="detail.posterUrl">{{ detail.posterUrl }}</code></div>
             </form>
             <aside><div v-if="!poster(event)" class="org-preview-empty"><ImageUp /><span>封面待上传</span></div><img v-else v-bind="imageAttrs(event)" /><dl><div><dt>活动状态</dt><dd>{{ status(event.status) }}</dd></div><div><dt>内容版本</dt><dd>{{ event.hasUnpublishedChanges ? '有待发布修改' : '与线上一致' }}</dd></div><div><dt>场次数</dt><dd>{{ event.sessions.length }}</dd></div><div><dt>配置票数</dt><dd>{{ ticketCount(event) }}</dd></div><div><dt>发布时间</dt><dd>{{ fmtDate(event.publishedTime) }}</dd></div></dl></aside>
+          </section>
+          <section v-else-if="tab==='content'" class="org-content-editor">
+            <form @submit.prevent="saveDetailContent">
+              <header><div><h2>详情与公开规则</h2><p>保存只更新草稿；再次发布活动后，购票端才读取这组内容。</p></div><button class="org-primary" :disabled="!!busy"><Save />{{ busy==='detailContent'?'保存中':'保存详情草稿' }}</button></header>
+              <div class="org-content-profile"><span>内容模板</span><strong>{{ profileNoun(detail) }}</strong><small>由活动类目决定，可回到“概览”更换类目</small></div>
+              <div class="org-segments" role="tablist"><button type="button" :class="{active:ruleGroup==='PURCHASE'}" @click="ruleGroup='PURCHASE'">购票须知 <span>{{ rulesFor(detail,'PURCHASE').length }}</span></button><button type="button" :class="{active:ruleGroup==='ATTENDANCE'}" @click="ruleGroup='ATTENDANCE'">入场须知 <span>{{ rulesFor(detail,'ATTENDANCE').length }}</span></button></div>
+              <div class="org-rule-list"><label v-for="item in rulesFor(detail,ruleGroup)" :key="item.ruleCode"><span>{{ item.title }} *</span><textarea v-model="item.content" rows="3" maxlength="800"></textarea><small>{{ item.content.length }}/800 · {{ item.ruleCode }}</small></label></div>
+              <div class="org-content-divider"><div><h3>详情模块</h3><p>购票端按当前顺序从上到下展示。</p></div><div class="org-detail-actions"><button v-for="item in detailTypes" :key="item.type" type="button" @click="addDetailSection(detail,item.type)"><Plus />{{ item.label }}</button></div></div>
+              <div v-if="!detail.detailSections.length" class="org-builder-empty"><FileText /><strong>还没有详情模块</strong><p>添加后保存为草稿，再由“发布最新版本”同步到购票端。</p></div>
+              <div class="org-detail-builder"><article v-for="(item,index) in detail.detailSections" :key="`${item.sectionType}-${index}`"><header><div><FileText /><span>{{ detailTypes.find((value)=>value.type===item.sectionType)?.label }}</span></div><div><button type="button" title="上移" :disabled="index===0" @click="moveDetailSection(detail,index,-1)"><ArrowUp /></button><button type="button" title="下移" :disabled="index===detail.detailSections.length-1" @click="moveDetailSection(detail,index,1)"><ArrowDown /></button><button type="button" title="删除" @click="removeDetailSection(detail,index)"><Trash2 /></button></div></header><label><span>模块标题 *</span><input v-model="item.title" maxlength="80" /></label><label v-if="item.sectionType!=='IMAGE'"><span>公开内容 *</span><textarea v-model="item.content" rows="5" maxlength="4000"></textarea><small>{{ item.content.length }}/4000</small></label><div v-if="item.sectionType==='IMAGE' || item.imageUrl" class="org-detail-upload"><img v-if="item.imageUrl" :src="item.imageUrl" :alt="item.title" /><div v-else><ImageUp /><span>JPG、PNG 或 WebP，最大 5 MB</span></div><label class="org-secondary"><input type="file" accept="image/jpeg,image/png,image/webp" @change="uploadDetailImage($event,item)" />{{ item.imageUrl?'更换图片':'上传图片' }}</label></div></article></div>
+            </form>
           </section>
           <section v-else-if="tab==='homepage'" class="org-homepage-workflow">
             <form class="org-homepage-form" @submit.prevent @input="homepageDirty=true">

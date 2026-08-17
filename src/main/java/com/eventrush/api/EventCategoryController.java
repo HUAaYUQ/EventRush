@@ -36,7 +36,8 @@ class EventCategoryController {
 
     @PostMapping("/api/organizer/catalog/categories")
     EventCategory create(@Valid @RequestBody CategoryRequest request) {
-        return service.create(request.name(), request.iconKey(), request.displayOrder(), request.enabled());
+        return service.create(request.name(), request.iconKey(), request.contentProfile(),
+                request.displayOrder(), request.enabled());
     }
 
     @PutMapping("/api/organizer/catalog/categories/{categoryId}")
@@ -44,7 +45,7 @@ class EventCategoryController {
             @PathVariable Long categoryId,
             @Valid @RequestBody CategoryRequest request
     ) {
-        return service.update(categoryId, request.name(), request.iconKey(),
+        return service.update(categoryId, request.name(), request.iconKey(), request.contentProfile(),
                 request.displayOrder(), request.enabled());
     }
 
@@ -52,6 +53,8 @@ class EventCategoryController {
             @NotBlank(message = "类目名称不能为空")
             @Size(max = 40, message = "类目名称不能超过 40 个字") String name,
             @Size(max = 40, message = "图标标识不能超过 40 个字") String iconKey,
+            @NotBlank(message = "内容模板不能为空")
+            @Size(max = 32, message = "内容模板格式错误") String contentProfile,
             @Min(value = 0, message = "展示顺序不能小于 0")
             @Max(value = 999, message = "展示顺序不能超过 999") int displayOrder,
             boolean enabled

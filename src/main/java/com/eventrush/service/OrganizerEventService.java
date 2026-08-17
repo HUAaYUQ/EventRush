@@ -1,7 +1,9 @@
 package com.eventrush.service;
 
 import com.eventrush.domain.EventSession;
+import com.eventrush.domain.EventDetailSectionDraft;
 import com.eventrush.domain.EventProductDraft;
+import com.eventrush.domain.EventRuleDraft;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
 import com.eventrush.domain.OrganizerOrderSummary;
@@ -9,6 +11,7 @@ import com.eventrush.domain.TicketCategory;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
+import java.util.HashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -26,6 +29,9 @@ public class OrganizerEventService {
     public static final Long CURRENT_ORGANIZER_ID = 9001L;
     private static final Set<String> REAL_NAME_RULES = Set.of("REQUIRED", "NOT_REQUIRED");
     private static final Set<String> ENTRY_METHODS = Set.of("E_TICKET", "ID_CARD", "PAPER_TICKET");
+    private static final Set<String> RULE_GROUPS = Set.of("PURCHASE", "ATTENDANCE");
+    private static final Set<String> SECTION_TYPES = Set.of(
+            "RICH_TEXT", "HIGHLIGHT", "CAST", "IMAGE", "TRANSPORT", "IMPORTANT_NOTICE");
 
     private final EventCatalogRepository repository;
     private final EventCategoryService eventCategoryService;
@@ -58,11 +64,13 @@ public class OrganizerEventService {
         return repository.listOrganizerOrders(eventId, CURRENT_ORGANIZER_ID);
     }
 
+    @Transactional
     public OrganizerEvent createDraft(EventProductDraft product) {
         EventProductDraft normalized = normalizeProduct(product);
         return repository.createDraft(CURRENT_ORGANIZER_ID, normalized, LocalDateTime.now());
     }
 
+    @Transactional
     public OrganizerEvent updateBasicInfo(
             Long eventId,
             EventProductDraft product
@@ -128,6 +136,15 @@ public class OrganizerEventService {
             throw new BusinessException("EVENT_INFO_REQUIRED", HttpStatus.CONFLICT,
                     "发布前请补全活动、场馆、图片和票务规则");
         }
+        if (event.rules().stream().noneMatch(rule -> "PURCHASE".equals(rule.ruleGroup()))
+                || event.rules().stream().noneMatch(rule -> "ATTENDANCE".equals(rule.ruleGroup()))) {
+            throw new BusinessException("EVENT_RULES_REQUIRED", HttpStatus.CONFLICT,
+                    "发布前请分别配置购票须知和入场须知");
+        }
+        if (event.detailSections().isEmpty()) {
+            throw new BusinessException("EVENT_DETAILS_REQUIRED", HttpStatus.CONFLICT,
+                    "发布前请至少配置一个活动详情模块");
+        }
         eventCategoryService.requireEnabled(event.categoryId());
         repository.publishEvent(eventId, CURRENT_ORGANIZER_ID, LocalDateTime.now());
         evictPublishedEvent(eventId);
@@ -157,13 +174,53 @@ public class OrganizerEventService {
             throw new BusinessException("INVALID_ENTRY_METHOD", HttpStatus.BAD_REQUEST,
                     "入场方式不受支持");
         }
+        List<EventRuleDraft> rules = normalizeRules(product.rules());
+        List<EventDetailSectionDraft> detailSections = normalizeSections(product.detailSections());
         return new EventProductDraft(
                 product.name().trim(), product.categoryId(), product.city().trim(),
                 product.venueName().trim(), product.venueAddress().trim(),
                 product.description().trim(), product.posterUrl() == null ? "" : product.posterUrl().trim(),
                 product.durationMinutes(), product.saleStartTime(), product.saleEndTime(),
                 product.purchaseLimit(), product.realNameRule().trim(), product.entryMethod().trim(),
-                product.refundRule().trim(), product.waitlistEnabled());
+                product.refundRule().trim(), product.waitlistEnabled(), rules, detailSections);
+    }
+
+    private List<EventRuleDraft> normalizeRules(List<EventRuleDraft> rules) {
+        List<EventRuleDraft> values = rules == null ? List.of() : rules;
+        Set<String> codes = new HashSet<>();
+        return values.stream().map(rule -> {
+            String group = rule.ruleGroup().trim().toUpperCase();
+            String code = rule.ruleCode().trim().toUpperCase();
+            if (!RULE_GROUPS.contains(group)) {
+                throw new BusinessException("INVALID_RULE_GROUP", HttpStatus.BAD_REQUEST,
+                        "活动规则分组不受支持");
+            }
+            if (!codes.add(code)) {
+                throw new BusinessException("DUPLICATE_RULE_CODE", HttpStatus.BAD_REQUEST,
+                        "同一活动不能重复配置相同规则");
+            }
+            return new EventRuleDraft(group, code, rule.title().trim(), rule.content().trim(),
+                    rule.displayOrder());
+        }).toList();
+    }
+
+    private List<EventDetailSectionDraft> normalizeSections(List<EventDetailSectionDraft> sections) {
+        List<EventDetailSectionDraft> values = sections == null ? List.of() : sections;
+        return values.stream().map(section -> {
+            String type = section.sectionType().trim().toUpperCase();
+            String content = section.content() == null ? "" : section.content().trim();
+            String imageUrl = section.imageUrl() == null ? "" : section.imageUrl().trim();
+            if (!SECTION_TYPES.contains(type)) {
+                throw new BusinessException("INVALID_DETAIL_SECTION", HttpStatus.BAD_REQUEST,
+                        "活动详情模块类型不受支持");
+            }
+            if (content.isBlank() && imageUrl.isBlank()) {
+                throw new BusinessException("EMPTY_DETAIL_SECTION", HttpStatus.BAD_REQUEST,
+                        "详情模块至少需要文字内容或图片");
+            }
+            return new EventDetailSectionDraft(type, section.title().trim(), content, imageUrl,
+                    section.displayOrder());
+        }).toList();
     }
 
     private void evictPublishedEvent(Long eventId) {

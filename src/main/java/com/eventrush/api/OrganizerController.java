@@ -1,7 +1,9 @@
 package com.eventrush.api;
 
 import com.eventrush.domain.EventSession;
+import com.eventrush.domain.EventDetailSectionDraft;
 import com.eventrush.domain.EventProductDraft;
+import com.eventrush.domain.EventRuleDraft;
 import com.eventrush.domain.OrganizerEvent;
 import com.eventrush.domain.OrganizerNotice;
 import com.eventrush.domain.OrganizerOrderSummary;
@@ -142,12 +144,49 @@ class OrganizerController {
             @Size(max = 32, message = "入场方式格式错误") String entryMethod,
             @NotBlank(message = "退票规则不能为空")
             @Size(max = 1000, message = "退票规则不能超过 1000 个字") String refundRule,
-            boolean waitlistEnabled
+            boolean waitlistEnabled,
+            List<@Valid RuleRequest> rules,
+            List<@Valid DetailSectionRequest> detailSections
     ) {
         EventProductDraft toProduct() {
             return new EventProductDraft(name, categoryId, city, venueName, venueAddress,
                     description, posterUrl, durationMinutes, saleStartTime, saleEndTime,
-                    purchaseLimit, realNameRule, entryMethod, refundRule, waitlistEnabled);
+                    purchaseLimit, realNameRule, entryMethod, refundRule, waitlistEnabled,
+                    rules == null ? List.of() : rules.stream().map(RuleRequest::toDraft).toList(),
+                    detailSections == null ? List.of()
+                            : detailSections.stream().map(DetailSectionRequest::toDraft).toList());
+        }
+    }
+
+    record RuleRequest(
+            @NotBlank(message = "规则分组不能为空")
+            @Size(max = 32, message = "规则分组格式错误") String ruleGroup,
+            @NotBlank(message = "规则标识不能为空")
+            @Size(max = 64, message = "规则标识不能超过 64 个字") String ruleCode,
+            @NotBlank(message = "规则标题不能为空")
+            @Size(max = 80, message = "规则标题不能超过 80 个字") String title,
+            @NotBlank(message = "规则内容不能为空")
+            @Size(max = 2000, message = "规则内容不能超过 2000 个字") String content,
+            @Min(value = 0, message = "规则顺序不能小于 0")
+            @Max(value = 999, message = "规则顺序不能超过 999") int displayOrder
+    ) {
+        EventRuleDraft toDraft() {
+            return new EventRuleDraft(ruleGroup, ruleCode, title, content, displayOrder);
+        }
+    }
+
+    record DetailSectionRequest(
+            @NotBlank(message = "详情模块类型不能为空")
+            @Size(max = 32, message = "详情模块类型格式错误") String sectionType,
+            @NotBlank(message = "详情模块标题不能为空")
+            @Size(max = 100, message = "详情模块标题不能超过 100 个字") String title,
+            @Size(max = 5000, message = "详情模块内容不能超过 5000 个字") String content,
+            @Size(max = 255, message = "详情图片地址不能超过 255 个字") String imageUrl,
+            @Min(value = 0, message = "详情模块顺序不能小于 0")
+            @Max(value = 999, message = "详情模块顺序不能超过 999") int displayOrder
+    ) {
+        EventDetailSectionDraft toDraft() {
+            return new EventDetailSectionDraft(sectionType, title, content, imageUrl, displayOrder);
         }
     }
 

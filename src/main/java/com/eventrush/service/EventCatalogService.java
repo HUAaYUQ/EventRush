@@ -168,10 +168,11 @@ public class EventCatalogService {
 
     private Event copyWithSessions(Event event, List<EventSession> sessions) {
         return new Event(event.id(), event.name(), event.location(), event.categoryId(),
-                event.categoryName(), event.city(), event.venueAddress(), event.status(),
+                event.categoryName(), event.contentProfile(), event.city(), event.venueAddress(), event.status(),
                 event.saleStatus(), event.saleStartTime(), event.saleEndTime(), event.durationMinutes(),
                 event.purchaseLimit(), event.realNameRule(), event.entryMethod(), event.refundRule(),
-                event.waitlistEnabled(), sessions, event.description(), event.posterUrl(), event.notices());
+                event.waitlistEnabled(), sessions, event.description(), event.posterUrl(), event.rules(),
+                event.detailSections(), event.notices());
     }
 
     private Event findEventBySessionId(Long sessionId) {

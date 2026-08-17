@@ -10,6 +10,7 @@ public record OrganizerEvent(
         String location,
         Long categoryId,
         String categoryName,
+        String contentProfile,
         String city,
         String venueAddress,
         String description,
@@ -28,6 +29,8 @@ public record OrganizerEvent(
         LocalDateTime updatedTime,
         LocalDateTime publishedTime,
         List<EventSession> sessions,
+        List<EventRule> rules,
+        List<EventDetailSection> detailSections,
         List<OrganizerNotice> notices
 ) {
 }

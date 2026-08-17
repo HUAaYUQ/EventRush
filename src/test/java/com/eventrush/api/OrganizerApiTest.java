@@ -63,10 +63,11 @@ class OrganizerApiTest {
                         .header("X-Organizer-Key", KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"现场娱乐","iconKey":"ticket","displayOrder":5,"enabled":true}
+                                {"name":"现场娱乐","iconKey":"ticket","contentProfile":"EXHIBITION","displayOrder":5,"enabled":true}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("现场娱乐"))
+                .andExpect(jsonPath("$.data.contentProfile").value("EXHIBITION"))
                 .andReturn());
 
         mockMvc.perform(get("/api/catalog/categories"))
@@ -78,10 +79,11 @@ class OrganizerApiTest {
                         .header("X-Organizer-Key", KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"现场娱乐","iconKey":"ticket","displayOrder":5,"enabled":false}
+                                {"name":"现场娱乐","iconKey":"ticket","contentProfile":"SPORTS","displayOrder":5,"enabled":false}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.enabled").value(false));
+                .andExpect(jsonPath("$.data.enabled").value(false))
+                .andExpect(jsonPath("$.data.contentProfile").value("SPORTS"));
 
         mockMvc.perform(get("/api/catalog/categories"))
                 .andExpect(status().isOk())
@@ -111,7 +113,15 @@ class OrganizerApiTest {
                                   "realNameRule":"REQUIRED",
                                   "entryMethod":"E_TICKET",
                                   "refundRule":"开演前 48 小时可申请退票。",
-                                  "waitlistEnabled":true
+                                  "waitlistEnabled":true,
+                                  "rules":[
+                                    {"ruleGroup":"PURCHASE","ruleCode":"CHILD_POLICY","title":"儿童购票","content":"儿童也需要实名购票。","displayOrder":0},
+                                    {"ruleGroup":"ATTENDANCE","ruleCode":"ENTRY_TIME","title":"入场时间","content":"请提前 30 分钟到场。","displayOrder":10}
+                                  ],
+                                  "detailSections":[
+                                    {"sectionType":"RICH_TEXT","title":"演出介绍","content":"首版演出详情。","imageUrl":"","displayOrder":0},
+                                    {"sectionType":"IMAGE","title":"演出现场","content":"","imageUrl":"/media/detail-first.jpg","displayOrder":10}
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isOk()).andReturn());
@@ -177,7 +187,15 @@ class OrganizerApiTest {
                                   "realNameRule":"REQUIRED",
                                   "entryMethod":"E_TICKET",
                                   "refundRule":"开演前 48 小时可申请退票。",
-                                  "waitlistEnabled":true
+                                  "waitlistEnabled":true,
+                                  "rules":[
+                                    {"ruleGroup":"PURCHASE","ruleCode":"CHILD_POLICY","title":"儿童购票","content":"加场版本要求儿童实名购票。","displayOrder":0},
+                                    {"ruleGroup":"ATTENDANCE","ruleCode":"ENTRY_TIME","title":"入场时间","content":"加场版本请提前 45 分钟到场。","displayOrder":10}
+                                  ],
+                                  "detailSections":[
+                                    {"sectionType":"RICH_TEXT","title":"演出介绍","content":"加场版本演出详情。","imageUrl":"","displayOrder":0},
+                                    {"sectionType":"IMPORTANT_NOTICE","title":"重要说明","content":"请以现场公告为准。","imageUrl":"","displayOrder":10}
+                                  ]
                                 }
                                 """))
                 .andExpect(status().isOk())
@@ -188,7 +206,11 @@ class OrganizerApiTest {
                 .andExpect(jsonPath("$.data.name").value("春季音乐现场"))
                 .andExpect(jsonPath("$.data.sessions[0].startTime").value("2026-09-01T19:00:00"))
                 .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].name").value("预售票"))
-                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].priceCents").value(9900));
+                .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].priceCents").value(9900))
+                .andExpect(jsonPath("$.data.rules[?(@.ruleCode == 'CHILD_POLICY')].content")
+                        .value(org.hamcrest.Matchers.hasItem("儿童也需要实名购票。")))
+                .andExpect(jsonPath("$.data.detailSections[0].content").value("首版演出详情。"))
+                .andExpect(jsonPath("$.data.detailSections[1].imageUrl").value("/media/detail-first.jpg"));
 
         mockMvc.perform(post("/api/organizer/events/%d/publish".formatted(eventId))
                         .header("X-Organizer-Key", KEY))
@@ -304,12 +326,19 @@ class OrganizerApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("春季音乐现场·加场"))
                 .andExpect(jsonPath("$.data.categoryName").value("演唱会"))
+                .andExpect(jsonPath("$.data.contentProfile").value("PERFORMANCE"))
                 .andExpect(jsonPath("$.data.city").value("上海"))
                 .andExpect(jsonPath("$.data.purchaseLimit").value(4))
                 .andExpect(jsonPath("$.data.waitlistEnabled").value(true))
                 .andExpect(jsonPath("$.data.description").value("主办方发布闭环验收活动"))
                 .andExpect(jsonPath("$.data.posterUrl").value("/media/test-project.jpg"))
                 .andExpect(jsonPath("$.data.notices[0].title").value("入场提醒"))
+                .andExpect(jsonPath("$.data.rules[?(@.ruleCode == 'CHILD_POLICY')].content")
+                        .value(org.hamcrest.Matchers.hasItem("加场版本要求儿童实名购票。")))
+                .andExpect(jsonPath("$.data.rules[?(@.ruleCode == 'ENTRY_TIME')].content")
+                        .value(org.hamcrest.Matchers.hasItem("加场版本请提前 45 分钟到场。")))
+                .andExpect(jsonPath("$.data.detailSections[0].content").value("加场版本演出详情。"))
+                .andExpect(jsonPath("$.data.detailSections[1].title").value("重要说明"))
                 .andExpect(jsonPath("$.data.sessions[0].startTime").value("2026-09-01T20:00:00"))
                 .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].name").value("正式票"))
                 .andExpect(jsonPath("$.data.sessions[0].ticketCategories[0].priceCents").value(12900));

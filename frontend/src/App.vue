@@ -699,6 +699,20 @@ function eventPoster(event) {
   return event?.['posterUrl'] || ''
 }
 
+function eventContentLabels(event) {
+  return {
+    PERFORMANCE: { intro: '演出介绍', attendance: '观演须知' },
+    SPORTS: { intro: '赛事介绍', attendance: '观赛须知' },
+    EXHIBITION: { intro: '项目介绍', attendance: '活动须知' },
+    FAMILY: { intro: '项目介绍', attendance: '观演须知' },
+    GENERAL: { intro: '活动介绍', attendance: '活动须知' },
+  }[event?.contentProfile] || { intro: '活动介绍', attendance: '活动须知' }
+}
+
+function eventRules(event, group) {
+  return (event?.rules || []).filter((item) => item.ruleGroup === group)
+}
+
 function eventImageAttrs(event, alt = '活动海报') {
   return { src: eventPoster(event), alt }
 }
@@ -1933,11 +1947,11 @@ onUnmounted(() => {
               <div><dt>时长</dt><dd>约 {{ currentEvent.durationMinutes }} 分钟</dd></div>
             </dl>
             <section v-if="currentEvent.description" class="event-description">
-              <h2>活动介绍</h2>
+              <h2>{{ eventContentLabels(currentEvent).intro }}</h2>
               <p>{{ currentEvent.description }}</p>
             </section>
             <section class="event-rules">
-              <h2>购票与观演规则</h2>
+              <h2>售票与凭证</h2>
               <dl>
                 <div><dt>销售时间</dt><dd>{{ formatDateTime(currentEvent.saleStartTime) }} 至 {{ formatDateTime(currentEvent.saleEndTime) }}</dd></div>
                 <div><dt>购票限制</dt><dd>每笔订单最多 {{ currentEvent.purchaseLimit }} 张</dd></div>
@@ -1946,6 +1960,21 @@ onUnmounted(() => {
                 <div><dt>退票规则</dt><dd>{{ currentEvent.refundRule }}</dd></div>
                 <div><dt>候补服务</dt><dd>{{ currentEvent.waitlistEnabled ? '该活动支持缺票候补' : '该活动不开放候补' }}</dd></div>
               </dl>
+            </section>
+            <section v-if="eventRules(currentEvent,'PURCHASE').length" class="event-public-rules">
+              <h2>购票须知</h2>
+              <dl><div v-for="item in eventRules(currentEvent,'PURCHASE')" :key="item.ruleCode"><dt>{{ item.title }}</dt><dd>{{ item.content }}</dd></div></dl>
+            </section>
+            <section v-if="eventRules(currentEvent,'ATTENDANCE').length" class="event-public-rules">
+              <h2>{{ eventContentLabels(currentEvent).attendance }}</h2>
+              <dl><div v-for="item in eventRules(currentEvent,'ATTENDANCE')" :key="item.ruleCode"><dt>{{ item.title }}</dt><dd>{{ item.content }}</dd></div></dl>
+            </section>
+            <section v-if="currentEvent.detailSections?.length" class="event-detail-content">
+              <article v-for="item in currentEvent.detailSections" :key="`${item.sectionType}-${item.displayOrder}`" :data-type="item.sectionType">
+                <h2>{{ item.title }}</h2>
+                <img v-if="item.imageUrl" :src="item.imageUrl" :alt="item.title" loading="lazy" />
+                <p v-if="item.content">{{ item.content }}</p>
+              </article>
             </section>
             <section v-if="currentEventNotices.length" class="event-notices">
               <div class="event-section-heading"><h2>活动公告</h2><span>{{ currentEventNotices.length }} 条</span></div>

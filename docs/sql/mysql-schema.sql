@@ -99,3 +99,153 @@ CREATE TABLE IF NOT EXISTS ticket_waitlist_passenger (
     UNIQUE KEY uk_ticket_waitlist_passenger_sequence (waitlist_id, passenger_sequence),
     KEY idx_ticket_waitlist_passenger_waitlist (waitlist_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_category (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(40) NOT NULL,
+    icon_key VARCHAR(40) NOT NULL,
+    content_profile VARCHAR(32) NOT NULL DEFAULT 'GENERAL',
+    display_order INT NOT NULL DEFAULT 0,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_time DATETIME NOT NULL,
+    updated_time DATETIME NOT NULL,
+    UNIQUE KEY uk_event_category_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_catalog (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    organizer_id BIGINT NOT NULL,
+    category_id BIGINT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(80) NOT NULL,
+    location VARCHAR(160) NOT NULL,
+    venue_address VARCHAR(255) NOT NULL,
+    description VARCHAR(1000) NOT NULL,
+    poster_url VARCHAR(255) NOT NULL DEFAULT '',
+    duration_minutes INT NOT NULL,
+    sale_start_time DATETIME NOT NULL,
+    sale_end_time DATETIME NOT NULL,
+    purchase_limit INT NOT NULL,
+    real_name_rule VARCHAR(32) NOT NULL,
+    entry_method VARCHAR(32) NOT NULL,
+    refund_rule VARCHAR(1000) NOT NULL,
+    waitlist_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(32) NOT NULL,
+    created_time DATETIME NOT NULL,
+    updated_time DATETIME NOT NULL,
+    published_time DATETIME NULL,
+    KEY idx_event_catalog_organizer (organizer_id, updated_time),
+    KEY idx_event_catalog_category (category_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_publication (
+    event_id BIGINT PRIMARY KEY,
+    organizer_id BIGINT NOT NULL,
+    category_id BIGINT NOT NULL,
+    category_name VARCHAR(40) NOT NULL,
+    content_profile VARCHAR(32) NOT NULL DEFAULT 'GENERAL',
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(80) NOT NULL,
+    venue_name VARCHAR(160) NOT NULL,
+    venue_address VARCHAR(255) NOT NULL,
+    description VARCHAR(1000) NOT NULL,
+    poster_url VARCHAR(255) NOT NULL DEFAULT '',
+    duration_minutes INT NOT NULL,
+    sale_start_time DATETIME NOT NULL,
+    sale_end_time DATETIME NOT NULL,
+    purchase_limit INT NOT NULL,
+    real_name_rule VARCHAR(32) NOT NULL,
+    entry_method VARCHAR(32) NOT NULL,
+    refund_rule VARCHAR(1000) NOT NULL,
+    waitlist_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    published_time DATETIME NOT NULL,
+    KEY idx_event_publication_category (category_id, published_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_session_catalog (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    event_id BIGINT NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
+    created_time DATETIME NOT NULL,
+    updated_time DATETIME NOT NULL,
+    KEY idx_event_session_catalog_event (event_id, start_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_session_publication (
+    event_id BIGINT NOT NULL,
+    session_id BIGINT NOT NULL,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
+    UNIQUE KEY uk_event_session_publication (event_id, session_id),
+    KEY idx_event_session_publication_time (event_id, start_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ticket_category_catalog (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    session_id BIGINT NOT NULL,
+    name VARCHAR(80) NOT NULL,
+    price_cents BIGINT NOT NULL,
+    total_stock INT NOT NULL,
+    remaining_stock INT NOT NULL,
+    created_time DATETIME NOT NULL,
+    updated_time DATETIME NOT NULL,
+    KEY idx_ticket_category_catalog_session (session_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ticket_category_publication (
+    event_id BIGINT NOT NULL,
+    session_id BIGINT NOT NULL,
+    ticket_category_id BIGINT NOT NULL,
+    name VARCHAR(80) NOT NULL,
+    price_cents BIGINT NOT NULL,
+    total_stock INT NOT NULL,
+    UNIQUE KEY uk_ticket_category_publication (event_id, session_id, ticket_category_id),
+    KEY idx_ticket_category_publication_session (session_id, ticket_category_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_rule_catalog (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    event_id BIGINT NOT NULL,
+    rule_group VARCHAR(32) NOT NULL,
+    rule_code VARCHAR(64) NOT NULL,
+    title VARCHAR(80) NOT NULL,
+    content VARCHAR(2000) NOT NULL,
+    display_order INT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_event_rule_catalog (event_id, rule_code),
+    KEY idx_event_rule_catalog_order (event_id, rule_group, display_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_rule_publication (
+    event_id BIGINT NOT NULL,
+    rule_group VARCHAR(32) NOT NULL,
+    rule_code VARCHAR(64) NOT NULL,
+    title VARCHAR(80) NOT NULL,
+    content VARCHAR(2000) NOT NULL,
+    display_order INT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_event_rule_publication (event_id, rule_code),
+    KEY idx_event_rule_publication_order (event_id, rule_group, display_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_detail_section_catalog (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    event_id BIGINT NOT NULL,
+    section_type VARCHAR(32) NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    content VARCHAR(5000) NOT NULL,
+    image_url VARCHAR(255) NOT NULL DEFAULT '',
+    display_order INT NOT NULL DEFAULT 0,
+    KEY idx_event_detail_catalog_order (event_id, display_order, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_detail_section_publication (
+    event_id BIGINT NOT NULL,
+    section_id BIGINT NOT NULL,
+    section_type VARCHAR(32) NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    content VARCHAR(5000) NOT NULL,
+    image_url VARCHAR(255) NOT NULL DEFAULT '',
+    display_order INT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_event_detail_publication (event_id, section_id),
+    KEY idx_event_detail_publication_order (event_id, display_order, section_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

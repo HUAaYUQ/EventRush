@@ -1,6 +1,7 @@
 package com.eventrush.domain;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record EventProductDraft(
         String name,
@@ -17,6 +18,8 @@ public record EventProductDraft(
         String realNameRule,
         String entryMethod,
         String refundRule,
-        boolean waitlistEnabled
+        boolean waitlistEnabled,
+        List<EventRuleDraft> rules,
+        List<EventDetailSectionDraft> detailSections
 ) {
 }
