@@ -16,6 +16,8 @@ rocketmq:
     group: eventrush-grab-producer
 
 eventrush:
+  media:
+    upload-dir: ${EVENTRUSH_MEDIA_UPLOAD_DIR:./data/uploads}
   organizer:
     key: ${EVENTRUSH_ORGANIZER_KEY:eventrush-organizer-key}
   admin:

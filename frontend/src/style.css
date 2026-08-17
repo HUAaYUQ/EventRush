@@ -2215,6 +2215,12 @@ h2 {
   --customer-red-soft: #f8ecea;
   --customer-green: #237653;
   --customer-green-soft: #edf7f1;
+  --customer-banner-scrim: linear-gradient(90deg, rgba(13, 15, 14, 0.88), rgba(13, 15, 14, 0.52) 58%, rgba(13, 15, 14, 0.08));
+  --customer-banner-edge: rgba(254, 254, 253, 0.32);
+  --customer-banner-chip: rgba(13, 15, 14, 0.28);
+  --customer-banner-copy-muted: rgba(254, 254, 253, 0.84);
+  --customer-banner-control: rgba(13, 15, 14, 0.52);
+  --customer-banner-dot: rgba(254, 254, 253, 0.44);
   width: min(1180px, calc(100% - 40px));
   color: var(--customer-ink);
 }
@@ -2349,6 +2355,154 @@ body:has([data-surface="customer"]) {
   color: var(--customer-red);
   font-size: 13px;
   font-weight: 800;
+}
+
+.homepage-showcase {
+  position: relative;
+  min-width: 0;
+  margin-bottom: 32px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--customer-ink);
+}
+
+.homepage-banner {
+  position: relative;
+  display: block;
+  min-height: 390px;
+  overflow: hidden;
+  color: var(--customer-surface);
+  text-decoration: none;
+}
+
+.homepage-banner::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: var(--customer-banner-scrim);
+  content: "";
+}
+
+.homepage-banner img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.homepage-banner-copy {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: min(650px, 72%);
+  min-height: 390px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 42px 48px;
+}
+
+.homepage-banner-copy > span {
+  padding: 5px 8px;
+  border: 1px solid var(--customer-banner-edge);
+  border-radius: 4px;
+  background: var(--customer-banner-chip);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.homepage-banner-copy h2 {
+  max-width: 620px;
+  margin: 13px 0 9px;
+  color: var(--customer-surface);
+  font-size: 34px;
+  line-height: 1.12;
+}
+
+.homepage-banner-copy p {
+  max-width: 560px;
+  color: var(--customer-banner-copy-muted);
+  font-size: 15px;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.homepage-banner-copy strong {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 20px;
+  padding: 0 14px;
+  border-radius: 5px;
+  color: var(--customer-ink);
+  background: var(--customer-surface);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.homepage-banner-copy strong svg {
+  width: 16px;
+  height: 16px;
+}
+
+.homepage-banner-arrows {
+  position: absolute;
+  z-index: 3;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  gap: 6px;
+}
+
+.homepage-banner-arrows button {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--customer-banner-edge);
+  border-radius: 5px;
+  color: var(--customer-surface);
+  background: var(--customer-banner-control);
+  cursor: pointer;
+}
+
+.homepage-banner-arrows svg {
+  width: 18px;
+  height: 18px;
+}
+
+.homepage-banner-dots {
+  position: absolute;
+  z-index: 3;
+  right: 126px;
+  bottom: 34px;
+  display: flex;
+  gap: 7px;
+}
+
+.homepage-banner-dots button {
+  width: 20px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--customer-banner-dot);
+  cursor: pointer;
+}
+
+.homepage-banner-dots button.active {
+  background: var(--customer-surface);
+}
+
+.homepage-banner-error {
+  margin-bottom: 24px;
+  padding: 12px 14px;
+  border: 1px solid var(--customer-line);
+  color: var(--customer-muted);
+  background: var(--customer-surface);
+  font-size: 13px;
 }
 
 .discover-page,
@@ -3301,6 +3455,40 @@ body:has([data-surface="customer"]) {
   .checkout-title-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .homepage-showcase {
+    margin-bottom: 24px;
+  }
+
+  .homepage-banner,
+  .homepage-banner-copy {
+    min-height: 300px;
+  }
+
+  .homepage-banner-copy {
+    width: 100%;
+    padding: 28px 20px 66px;
+  }
+
+  .homepage-banner-copy h2 {
+    font-size: 26px;
+  }
+
+  .homepage-banner-copy p {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .homepage-banner-dots {
+    right: auto;
+    bottom: 26px;
+    left: 20px;
+  }
+
+  .homepage-banner-arrows {
+    right: 12px;
+    bottom: 10px;
   }
 
   .discover-heading h1,

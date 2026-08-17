@@ -1,12 +1,17 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import OrganizerApp from './organizer/OrganizerApp.vue'
 
 const route = useRoute()
 const router = useRouter()
 
 const events = ref([])
+const homepageBanners = ref([])
+const homepageBannerIndex = ref(0)
+const homepageBannerPaused = ref(false)
+const homepageBannerError = ref('')
 const loading = ref(false)
 const error = ref('')
 const traceId = ref('')
@@ -65,6 +70,7 @@ const requestRecords = ref([])
 const now = ref(Date.now())
 let clockTimer = null
 let expirySyncTimer = null
+let homepageBannerTimer = null
 const adminOrders = ref([])
 const adminTicketsByOrder = ref([])
 const adminTicketByCode = ref(null)
@@ -390,6 +396,7 @@ const currentEvent = computed(() => {
 })
 
 const currentEventNotices = computed(() => currentEvent.value?.notices ?? [])
+const activeHomepageBanner = computed(() => homepageBanners.value[homepageBannerIndex.value] ?? null)
 
 const visibleEvents = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -931,6 +938,33 @@ async function loadEvents() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadHomepageBanners() {
+  homepageBannerError.value = ''
+  try {
+    const response = await fetch('/api/homepage/banners')
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload.success === false) throw new Error(payload.message || '首页内容加载失败')
+    homepageBanners.value = payload.data ?? []
+    homepageBannerIndex.value = 0
+  } catch (caught) {
+    homepageBanners.value = []
+    homepageBannerError.value = caught instanceof Error ? caught.message : '首页内容加载失败'
+  }
+}
+
+function showHomepageBanner(nextIndex) {
+  const count = homepageBanners.value.length
+  if (count < 2) return
+  homepageBannerIndex.value = (nextIndex + count) % count
+}
+
+function restartHomepageBannerTimer() {
+  window.clearInterval(homepageBannerTimer)
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  if (homepageBannerPaused.value || reduceMotion || homepageBanners.value.length < 2) return
+  homepageBannerTimer = window.setInterval(() => showHomepageBanner(homepageBannerIndex.value + 1), 6000)
 }
 
 async function loadMyOrders() {
@@ -1504,6 +1538,8 @@ watch(activeView, (nextView) => {
   }
 })
 
+watch([() => homepageBanners.value.length, homepageBannerPaused], restartHomepageBannerTimer)
+
 watch(remainingPaymentSeconds, (seconds, previousSeconds) => {
   if (seconds !== 0 || previousSeconds === 0 || !order.value) {
     return
@@ -1527,11 +1563,12 @@ onMounted(async () => {
   clockTimer = window.setInterval(() => {
     now.value = Date.now()
   }, 1000)
-  await Promise.all([loadEvents(), loadMyOrders(), loadMyWaitlists()])
+  await Promise.all([loadEvents(), loadHomepageBanners(), loadMyOrders(), loadMyWaitlists()])
 })
 
 onUnmounted(() => {
   window.clearInterval(clockTimer)
+  window.clearInterval(homepageBannerTimer)
   window.clearTimeout(expirySyncTimer)
 })
 </script>
@@ -1625,6 +1662,36 @@ onUnmounted(() => {
     </section>
 
     <section v-if="customerScreen === 'discover'" class="discover-page" aria-labelledby="discover-title">
+      <section
+        v-if="activeHomepageBanner"
+        class="homepage-showcase"
+        aria-roledescription="轮播图"
+        aria-label="首页推荐活动"
+        @mouseenter="homepageBannerPaused = true"
+        @mouseleave="homepageBannerPaused = false"
+        @focusin="homepageBannerPaused = true"
+        @focusout="homepageBannerPaused = false"
+      >
+        <RouterLink class="homepage-banner" :to="`/events/${activeHomepageBanner.eventId}`">
+          <img :src="activeHomepageBanner.imageUrl" :alt="`${activeHomepageBanner.title} 活动主视觉`" />
+          <div class="homepage-banner-copy">
+            <span>{{ activeHomepageBanner.city }}</span>
+            <h2>{{ activeHomepageBanner.title }}</h2>
+            <p>{{ activeHomepageBanner.subtitle }}</p>
+            <strong>查看活动 <ChevronRight /></strong>
+          </div>
+        </RouterLink>
+        <template v-if="homepageBanners.length > 1">
+          <div class="homepage-banner-arrows">
+            <button type="button" aria-label="上一张推荐活动" @click="showHomepageBanner(homepageBannerIndex - 1)"><ChevronLeft /></button>
+            <button type="button" aria-label="下一张推荐活动" @click="showHomepageBanner(homepageBannerIndex + 1)"><ChevronRight /></button>
+          </div>
+          <div class="homepage-banner-dots" aria-label="选择推荐活动">
+            <button v-for="(_, index) in homepageBanners" :key="index" type="button" :class="{ active:index===homepageBannerIndex }" :aria-label="`查看第 ${index + 1} 张推荐活动`" @click="showHomepageBanner(index)"></button>
+          </div>
+        </template>
+      </section>
+      <p v-else-if="homepageBannerError" class="homepage-banner-error">首页推荐暂时没有加载成功，活动目录仍可正常使用。</p>
       <div class="discover-heading">
         <div>
           <p class="customer-kicker">发现现场</p>

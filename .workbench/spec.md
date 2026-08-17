@@ -2,7 +2,7 @@
 name: EventRush 购票平台
 domain: system
 subject: 活动
-purpose: 让购票用户在一个统一产品中完成找活动、选票档、核对购票人、支付和管理个人票务，不接触内部角色工具。
+purpose: 让购票用户完成找活动、选票档、支付和管理票务，让主办方在独立后台管理进入公众视野的活动内容，两端通过同一活动生命周期联动。
 surface: desktop
 structure: { primary: event_registry, secondary: ticket_operation }
 moment: 用户想找活动、继续未完成交易或查看电子票时
@@ -10,7 +10,7 @@ dials: { cadence: 7, input: 4, depth: 6 }
 
 roles:
   - { name: 购票用户, opens_daily: true, does: 浏览活动、选择场次与票档、维护购票人、支付、候补、查看电子票和处理售后 }
-  - { name: 活动主办方, opens_daily: true, does: 下一阶段在独立产品管理活动、场次、票价、库存和通知 }
+  - { name: 活动主办方, opens_daily: true, does: 在独立产品管理活动、场次、票价、库存、通知和购票首页曝光 }
   - { name: 内部角色, opens_daily: false, does: 验票、运营排查和工程验收保留兼容地址，但不属于本阶段正式产品 }
 
 surfaces:
@@ -19,6 +19,8 @@ surfaces:
   - { path: /checkout, role: 购票用户, contains: [当前结算步骤], excludes: [活动目录, 全部订单, 工程证据] }
   - { path: /account, role: 购票用户, contains: [状态导航, 订单或候补列表, 当前详情, 电子票, 售后], excludes: [活动目录, 验票, 管理排查, 压测] }
   - { path: /my, role: 购票用户, contains: [重定向到 /account], excludes: [独立页面内容] }
+  - { path: /organizer/events, role: 活动主办方, contains: [活动列表, 发布入口, 运营状态], excludes: [购票交易, 验票, 工程证据] }
+  - { path: /organizer/events/:eventId, role: 活动主办方, contains: [活动信息, 首页曝光, 场次票档, 订单售后摘要, 通知], excludes: [购票用户操作, 压测] }
   - { path: /gate, role: 内部角色, contains: [兼容访问], excludes: [购票导航] }
   - { path: /ops, role: 内部角色, contains: [兼容访问], excludes: [购票导航] }
   - { path: /lab, role: 内部角色, contains: [兼容访问], excludes: [购票导航] }
@@ -39,12 +41,13 @@ cold_start:
   re_entry: 距上次验收已经隔了一段时间，直接重新跑一条新链路，不需要补旧数据。
 
 home:
+  - 首页主视觉：只读取主办方已发布、活动已发布且当前时间有效的公开版本；单张静态展示，多张才轮播
   - 发现活动：搜索活动名称与地点，只使用真实数据支持的售票中和可候补筛选
   - 活动卡片：本地海报、名称、下一场时间、地点、最低价格和可售状态
   - 待支付恢复：只用窄提示引导到我的票务，不在首页铺开订单详情
 
 product_boundary:
-  foreground: 正式购票导航只有发现活动和我的票务；主办方将在独立产品中建设。
+  foreground: 正式购票导航只有发现活动和我的票务；主办方使用独立后台，但其发布结果必须真实驱动购票端内容。
   evidence: 验票、运营和工程证据本阶段不建设、不进入正式导航，只保留旧地址兼容。
   reference: 借鉴 12306 的任务分区、订单恢复和候补心智，借鉴 Vibe Hub 的搜索与目录关系，但不复制视觉和卡片墙。
 
@@ -90,9 +93,21 @@ channels:
 
 entities:
   - name: Event
-    fields: [id, name, location, status]
-    written_by: { id: system, name: system, location: system, status: system }
-    relations: [Event 1-n Session]
+    fields: [id, name, location, description, poster_url, status]
+    written_by: { id: system, name: organizer, location: organizer, description: organizer, poster_url: organizer, status: organizer }
+    relations: [Event 1-n Session, Event 0-1 HomepageBanner]
+  - name: HomepageBanner
+    fields: [event_id, title, subtitle, image_url, city, display_start_time, display_end_time, display_order, status, published_time]
+    written_by: { event_id: organizer, title: organizer, subtitle: organizer, image_url: organizer, city: organizer, display_start_time: organizer, display_end_time: organizer, display_order: organizer, status: system, published_time: system }
+    relations: [HomepageBanner 1-1 Event, HomepageBanner 0-1 HomepageBannerPublication]
+  - name: HomepageBannerPublication
+    fields: [event_id, title, subtitle, image_url, city, display_start_time, display_end_time, display_order, published_time]
+    written_by: { event_id: system, title: system, subtitle: system, image_url: system, city: system, display_start_time: system, display_end_time: system, display_order: system, published_time: system }
+    relations: [HomepageBannerPublication 1-1 Event]
+  - name: MediaAsset
+    fields: [url, original_name, size, content_type]
+    written_by: { url: system, original_name: organizer, size: system, content_type: system }
+    relations: [MediaAsset 0-n HomepageBanner]
   - name: Session
     fields: [id, event_id, start_time, end_time]
     written_by: { id: system, event_id: system, start_time: system, end_time: system }
@@ -138,7 +153,7 @@ excluded:
   - 伪造多个活动、推荐榜单或虚构折扣。
   - 把购票人、支付、电子票和退票同时铺在活动首页。
 deferred:
-  - 主办方中心：Stage 53 已完成独立工作台，后续再扩展售后和运营协作。
+  - 主办方中心：首页曝光已与购票端联动，后续内容位必须沿用草稿、预览、发布和线上版本保护规则。
   - 验票和工程证据：产品主线稳定后再评估。
 ---
 

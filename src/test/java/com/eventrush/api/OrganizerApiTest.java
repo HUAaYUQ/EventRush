@@ -9,15 +9,19 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.mock.web.MockMultipartFile;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:eventrush-organizer-test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1",
         "eventrush.organizer.key=stage53-organizer-key",
+        "eventrush.media.upload-dir=target/test-media",
         "eventrush.stock.redis-enabled=false"
 })
 @AutoConfigureMockMvc
@@ -37,6 +41,19 @@ class OrganizerApiTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.message").value("主办方访问密钥无效"));
+    }
+
+    @Test
+    void uploadsHomepageImageForOrganizer() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "stage56.png", "image/png", "stage56-image".getBytes());
+
+        mockMvc.perform(multipart("/api/organizer/media/images")
+                        .file(file)
+                        .header("X-Organizer-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.url").value(org.hamcrest.Matchers.startsWith("/media/")))
+                .andExpect(jsonPath("$.data.contentType").value("image/png"));
     }
 
     @Test
@@ -78,6 +95,81 @@ class OrganizerApiTest {
                         .header("X-Organizer-Key", KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
+
+        mockMvc.perform(put("/api/organizer/events/%d/homepage-banner".formatted(eventId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title":"Stage 56 首页主视觉",
+                                  "subtitle":"主办方配置，购票首页只读取已发布版本",
+                                  "imageUrl":"/images/events/campus-music-night.jpg",
+                                  "city":"北京",
+                                  "displayStartTime":"2026-01-01T00:00:00",
+                                  "displayEndTime":"2030-01-01T00:00:00",
+                                  "displayOrder":1
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DRAFT"));
+
+        mockMvc.perform(get("/api/homepage/banners"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty());
+
+        mockMvc.perform(post("/api/organizer/events/%d/homepage-banner/publish".formatted(eventId))
+                        .header("X-Organizer-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
+
+        mockMvc.perform(get("/api/homepage/banners"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].eventId").value(eventId))
+                .andExpect(jsonPath("$.data[0].title").value("Stage 56 首页主视觉"))
+                .andExpect(jsonPath("$.data[0].city").value("北京"));
+
+        mockMvc.perform(put("/api/organizer/events/%d/homepage-banner".formatted(eventId))
+                        .header("X-Organizer-Key", KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title":"Stage 56 待发布修改",
+                                  "subtitle":"保存草稿不会直接替换购票端正在展示的版本",
+                                  "imageUrl":"/images/events/campus-music-night.jpg",
+                                  "city":"上海",
+                                  "displayStartTime":"2026-01-01T00:00:00",
+                                  "displayEndTime":"2030-01-01T00:00:00",
+                                  "displayOrder":2
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.publishedTime").isNotEmpty());
+
+        mockMvc.perform(get("/api/homepage/banners"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].title").value("Stage 56 首页主视觉"))
+                .andExpect(jsonPath("$.data[0].city").value("北京"));
+
+        mockMvc.perform(post("/api/organizer/events/%d/homepage-banner/publish".formatted(eventId))
+                        .header("X-Organizer-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PUBLISHED"));
+
+        mockMvc.perform(get("/api/homepage/banners"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].title").value("Stage 56 待发布修改"))
+                .andExpect(jsonPath("$.data[0].city").value("上海"));
+
+        mockMvc.perform(post("/api/organizer/events/%d/homepage-banner/unpublish".formatted(eventId))
+                        .header("X-Organizer-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.publishedTime").isEmpty());
+
+        mockMvc.perform(get("/api/homepage/banners"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty());
 
         mockMvc.perform(post("/api/organizer/events/%d/notices".formatted(eventId))
                         .header("X-Organizer-Key", KEY)
